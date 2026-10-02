@@ -10,6 +10,8 @@ export interface Editor {
   /** 内容を丸ごと差し替える（onChange は呼ばない） */
   setText(text: string): void;
   setDark(dark: boolean): void;
+  /** 編集できないようにする（更新のダウンロード中など） */
+  setReadOnly(readOnly: boolean): void;
   /** カーソル位置に挿入する（行の途中なら前後に改行を補う） */
   insert(text: string): void;
   /** 先頭に見えている行（0 始まり） */
@@ -31,6 +33,7 @@ export function createEditor(
   onPasteImage: PasteImageHandler,
 ): Editor {
   const theme = new Compartment();
+  const readOnly = new Compartment();
   let silent = false;
 
   const view = new EditorView({
@@ -42,6 +45,7 @@ export function createEditor(
         markdown({ codeLanguages: languages }),
         EditorView.lineWrapping,
         theme.of(dark ? oneDark : []),
+        readOnly.of([]),
         EditorView.domEventHandlers({
           paste(e, view) {
             const item = [...(e.clipboardData?.items ?? [])].find(
@@ -90,6 +94,11 @@ export function createEditor(
     },
     setDark(d) {
       view.dispatch({ effects: theme.reconfigure(d ? oneDark : []) });
+    },
+    setReadOnly(on) {
+      view.dispatch({
+        effects: readOnly.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
+      });
     },
     topLine() {
       const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop);

@@ -9,9 +9,14 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 const RELEASES_URL = "https://github.com/mazume-tech-club/Markdown-Viewer/releases";
 const AUTO_KEY = "update.auto";
+const KEEP_DRAFT_KEY = "update.keepDraft";
 
 export const isAutoCheckEnabled = () => localStorage.getItem(AUTO_KEY) !== "0";
 export const setAutoCheck = (on: boolean) => localStorage.setItem(AUTO_KEY, on ? "1" : "0");
+
+/** 更新時に未保存の変更を残し、再起動後に復元するか（オフなら破棄の確認を出す） */
+export const isKeepDraftEnabled = () => localStorage.getItem(KEEP_DRAFT_KEY) !== "0";
+export const setKeepDraft = (on: boolean) => localStorage.setItem(KEEP_DRAFT_KEY, on ? "1" : "0");
 
 const $ = (id: string) => document.getElementById(id)!;
 let checking = false;
@@ -70,11 +75,20 @@ function showFailure(err: unknown) {
   $("update-manual").hidden = false;
 }
 
-/**
- * バナーのボタンを配線する。beforeInstall が false を返したら更新を中止する
- * （未保存の編集があるときの確認に使う）
- */
-export function setupUpdater(beforeInstall: () => Promise<boolean>) {
+export interface UpdateHooks {
+  /** 更新を始めてよいか。false なら中止する（未保存の編集があるときの確認に使う） */
+  beforeInstall(): Promise<boolean>;
+  /**
+   * ダウンロードを始める直前。編集を止め、再起動後に開き直すための状態を退避する。
+   * 成功するとアプリはそのまま終了するので、ここが最後に状態を残せる機会になる
+   */
+  onStart(): void;
+  /** 更新に失敗してアプリを使い続けるとき。onStart の逆を行う */
+  onEnd(): void;
+}
+
+/** バナーのボタンを配線する */
+export function setupUpdater(hooks: UpdateHooks) {
   $("update-later").addEventListener("click", () => ($("update-banner").hidden = true));
   $("update-notes").addEventListener("click", () => void openUrl(releasePage()));
   $("update-manual").addEventListener("click", () => void openUrl(releasePage()));
@@ -86,14 +100,16 @@ export function setupUpdater(beforeInstall: () => Promise<boolean>) {
   });
 
   $("update-install").addEventListener("click", async () => {
-    if (!pending || !(await beforeInstall())) return;
+    if (!pending || !(await hooks.beforeInstall())) return;
     setBusy(true);
     progress.textContent = "ダウンロード中…";
     try {
+      hooks.onStart();
       // 成功するとインストーラが起動してアプリは終了し、インストール後に再起動される。
       // インストーラの起動を阻まれたなどの失敗はエラーとして返り、アプリはそのまま残る
       await invoke("install_update");
     } catch (err) {
+      hooks.onEnd();
       showFailure(err);
     }
   });

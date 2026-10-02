@@ -11,7 +11,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import helpSource from "./help/help.md?raw";
 import { renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
-import { isAutoCheckEnabled, setAutoCheck } from "./updater";
+import { isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft } from "./updater";
 import { getActiveLineColor, isActiveLineEnabled, setActiveLineColor, setActiveLineEnabled } from "./prefs";
 
 interface Item {
@@ -182,6 +182,9 @@ document.getElementById("btn-check-update")!.addEventListener("click", () => voi
 const autoUpdate = document.getElementById("auto-update") as HTMLInputElement;
 autoUpdate.checked = isAutoCheckEnabled();
 autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
+const keepDraft = document.getElementById("keep-draft") as HTMLInputElement;
+keepDraft.checked = isKeepDraftEnabled();
+keepDraft.addEventListener("change", () => setKeepDraft(keepDraft.checked));
 
 // 編集 → プレビュー切替時の編集位置の色付け（メインウィンドウは storage イベントで追従）
 const activeLine = document.getElementById("active-line") as HTMLInputElement;
