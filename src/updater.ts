@@ -1,5 +1,6 @@
 import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { message } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -46,14 +47,27 @@ function showBanner(update: Update) {
   pending = update;
   $("update-text").textContent = `新しいバージョン v${update.version} が利用できます（現在 v${update.currentVersion}）。`;
   $("update-progress").textContent = "";
+  $("update-install").textContent = "更新して再起動";
+  $("update-manual").hidden = true;
   setBusy(false);
   $("update-banner").hidden = false;
 }
 
 function setBusy(busy: boolean) {
-  for (const id of ["update-install", "update-notes", "update-later"]) {
+  for (const id of ["update-install", "update-notes", "update-later", "update-manual"]) {
     ($(id) as HTMLButtonElement).disabled = busy;
   }
+}
+
+const releasePage = () => (pending ? `${RELEASES_URL}/tag/v${pending.version}` : `${RELEASES_URL}/latest`);
+
+/** 更新に失敗したとき: アプリはそのまま使える状態で、再試行か手動ダウンロードを選べるようにする */
+function showFailure(err: unknown) {
+  setBusy(false);
+  $("update-progress").textContent = "";
+  $("update-text").textContent = `更新できませんでした。${String(err).replace(/^Error:\s*/, "")}`;
+  $("update-install").textContent = "再試行";
+  $("update-manual").hidden = false;
 }
 
 /**
@@ -62,30 +76,25 @@ function setBusy(busy: boolean) {
  */
 export function setupUpdater(beforeInstall: () => Promise<boolean>) {
   $("update-later").addEventListener("click", () => ($("update-banner").hidden = true));
-  $("update-notes").addEventListener("click", () => {
-    void openUrl(pending ? `${RELEASES_URL}/tag/v${pending.version}` : RELEASES_URL);
+  $("update-notes").addEventListener("click", () => void openUrl(releasePage()));
+  $("update-manual").addEventListener("click", () => void openUrl(releasePage()));
+
+  const progress = $("update-progress");
+  void listen<[number, number | null]>("update-progress", (e) => {
+    const [done, total] = e.payload;
+    progress.textContent = total ? `ダウンロード中… ${Math.round((done / total) * 100)}%` : "ダウンロード中…";
   });
+
   $("update-install").addEventListener("click", async () => {
     if (!pending || !(await beforeInstall())) return;
-    const progress = $("update-progress");
     setBusy(true);
-    let total = 0;
-    let done = 0;
+    progress.textContent = "ダウンロード中…";
     try {
-      await pending.downloadAndInstall((e) => {
-        if (e.event === "Started") total = e.data.contentLength ?? 0;
-        else if (e.event === "Progress") {
-          done += e.data.chunkLength;
-          progress.textContent = total ? `ダウンロード中… ${Math.round((done / total) * 100)}%` : "ダウンロード中…";
-        } else if (e.event === "Finished") progress.textContent = "インストール中…";
-      });
-      // Windows ではインストーラの起動と同時にアプリが終了し、インストール後に再起動される。
-      // それ以外の環境向けに明示的に再起動する
-      await relaunch();
+      // 成功するとインストーラが起動してアプリは終了し、インストール後に再起動される。
+      // インストーラの起動を阻まれたなどの失敗はエラーとして返り、アプリはそのまま残る
+      await invoke("install_update");
     } catch (err) {
-      setBusy(false);
-      progress.textContent = "";
-      await message(`更新に失敗しました。\n\n${err}`, { title: "更新", kind: "error" });
+      showFailure(err);
     }
   });
 

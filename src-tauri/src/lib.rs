@@ -184,6 +184,97 @@ async fn print_to_pdf(_window: tauri::WebviewWindow, _path: String) -> Result<()
     Err("PDF 出力は Windows のみ対応しています".into())
 }
 
+/// 更新をダウンロードしてインストーラを起動する。
+///
+/// プラグイン標準の `downloadAndInstall` は、インストーラを起動する前にウィンドウを片付けてしまうため、
+/// セキュリティソフトに起動を阻まれると「画面のないプロセス」が残り、以降アプリが起動できなくなる。
+/// ここではインストーラが起動したことを確かめてからアプリを終了し、失敗したらエラーを返して
+/// アプリをそのまま使えるようにする（フロントエンドで再試行・手動ダウンロードを案内する）。
+#[cfg(windows)]
+#[tauri::command]
+async fn install_update(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    let update = app
+        .updater()
+        .map_err(|e| e.to_string())?
+        .check()
+        .await
+        .map_err(|e| format!("更新の確認に失敗しました: {e}"))?
+        .ok_or("新しいバージョンが見つかりませんでした")?;
+
+    // ダウンロードと署名の検証（検証に失敗したらここでエラーになる）
+    let emitter = app.clone();
+    let mut done: u64 = 0;
+    let bytes = update
+        .download(
+            move |chunk, total| {
+                done += chunk as u64;
+                let _ = emitter.emit("update-progress", (done, total));
+            },
+            || {},
+        )
+        .await
+        .map_err(|e| format!("ダウンロードに失敗しました: {e}"))?;
+
+    let version = update.version.clone();
+    tauri::async_runtime::spawn_blocking(move || launch_installer(&bytes, &version))
+        .await
+        .map_err(|e| e.to_string())??;
+
+    // インストーラが動き出したので終了してファイルを明け渡す（インストール後に /R で再起動される）
+    app.exit(0);
+    Ok(())
+}
+
+/// インストーラを一時フォルダに保存して起動し、すぐに止められていないことを確かめる
+#[cfg(windows)]
+fn launch_installer(bytes: &[u8], version: &str) -> Result<(), String> {
+    use std::time::{Duration, Instant};
+
+    const BLOCKED: &str = "セキュリティソフトにブロックされた可能性があります";
+    let dir = std::env::temp_dir().join("markdown-preview-update");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("Markdown-Preview_{version}_x64-setup.exe"));
+    std::fs::write(&path, bytes)
+        .map_err(|e| format!("更新ファイルを保存できませんでした。{BLOCKED}。({e})"))?;
+
+    // 保存した直後に隔離・削除されていないか
+    std::thread::sleep(Duration::from_millis(500));
+    if !path.exists() {
+        return Err(format!("ダウンロードした更新ファイルが削除されました。{BLOCKED}。"));
+    }
+
+    // Tauri の updater と同じ引数（passive・更新モード・インストール後に再起動）
+    let mut child = std::process::Command::new(&path)
+        .args(["/P", "/UPDATE", "/R"])
+        .spawn()
+        .map_err(|e| format!("インストーラを起動できませんでした。{BLOCKED}。({e})"))?;
+
+    // 起動直後に止められていないか、しばらく様子を見る
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_secs(3) {
+        match child.try_wait() {
+            Ok(Some(status)) if !status.success() => {
+                return Err(format!(
+                    "インストーラが途中で終了しました（終了コード {}）。{BLOCKED}。",
+                    status.code().map_or("不明".into(), |c| c.to_string())
+                ));
+            }
+            Ok(Some(_)) => break,
+            Ok(None) => std::thread::sleep(Duration::from_millis(250)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+async fn install_update() -> Result<(), String> {
+    Err("この OS では自動更新に対応していません".into())
+}
+
 /// ヘルプウィンドウを開く（開いていれば前面に出す）。
 /// tauri.conf.json の定義から作るので、メインと同じ WebView2 起動引数になる
 /// （引数が食い違うと WebView2 が 0x8007139F で作成に失敗する）
@@ -280,7 +371,8 @@ pub fn run() {
             write_asset,
             preview_pdf,
             save_preview_pdf,
-            open_help
+            open_help,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
