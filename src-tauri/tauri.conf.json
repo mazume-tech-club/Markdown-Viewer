@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Markdown Preview",
   "mainBinaryName": "markdown-preview",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "identifier": "jp.asuzacgroup.markdownpreview",
   "build": {
     "frontendDist": "../dist",
@@ -56,7 +56,8 @@
     ],
     "windows": {
       "nsis": {
-        "installMode": "currentUser"
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico"
       }
     },
     "icon": [

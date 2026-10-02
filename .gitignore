@@ -1,3 +1,5 @@
 node_modules/
 dist/
 *.lnk
+src-tauri/icons/android/
+src-tauri/icons/ios/
