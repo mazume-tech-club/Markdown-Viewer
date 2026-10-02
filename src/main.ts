@@ -14,7 +14,7 @@ import { fillCached, renderDiagrams } from "./diagrams";
 import { createEditor } from "./editor";
 import { findLineElement, setupScrollSync } from "./scrollsync";
 import { ACTIVE_LINE_COLOR_KEY, applyActiveLineColor, isActiveLineEnabled } from "./prefs";
-import { checkForUpdate, setupUpdater } from "./updater";
+import { checkForUpdate, isKeepDraftEnabled, setupUpdater } from "./updater";
 import { basename, dirname, hasScheme, isMarkdownPath, resolvePath } from "./paths";
 
 type Mode = "editor" | "split" | "preview";
@@ -38,6 +38,8 @@ const state = {
   renderGen: 0,
   /** PDF 出力中は図をライトテーマで描く */
   forceLight: false,
+  /** 更新のダウンロード中は編集もファイルの切り替えもさせない（退避した内容とずれるため） */
+  updating: false,
 };
 
 /** 貼り付けたが未保存の画像。キーは md からの相対パス（本文に書いたもの） */
@@ -299,7 +301,7 @@ async function openFile(path: string) {
 }
 
 async function openWithPrompt(path?: string) {
-  if (!(await confirmDiscard())) return;
+  if (state.updating || !(await confirmDiscard())) return;
   if (!path) {
     const picked = await openDialog({
       multiple: false,
@@ -362,7 +364,7 @@ async function saveFile(saveAs = false): Promise<boolean> {
 }
 
 async function newFile() {
-  if (!(await confirmDiscard())) return;
+  if (state.updating || !(await confirmDiscard())) return;
   clearPendingImages();
   state.path = null;
   state.savedText = "";
@@ -423,8 +425,83 @@ window.addEventListener("storage", (e) => e.key === "theme" && updateThemeButton
 updateThemeButton();
 
 // ---------- バージョンアップ ----------
-// 起動時に自動確認（ヘルプで切り替え可）。ヘルプの「更新を確認」からも呼ばれる
-setupUpdater(confirmDiscard);
+// 起動時に自動確認（ヘルプで切り替え可）。ヘルプの「更新を確認」からも呼ばれる。
+// 更新するとアプリは終了してインストール後に再起動されるので、開いていたファイルと
+// （設定がオンなら）未保存の変更を退避し、再起動後に復元する
+
+const DRAFT_KEY = "update.draft";
+
+interface Draft {
+  path: string | null;
+  /** 未保存の本文。変更がない、または破棄する設定なら null */
+  text: string | null;
+}
+
+async function beforeUpdate(): Promise<boolean> {
+  if (!state.dirty) return true;
+  if (!isKeepDraftEnabled()) return confirmDiscard();
+  // 貼り付けた画像はメモリにしかなく持ち越せないので、先に保存してもらう
+  const text = editor.getText();
+  if (![...pendingImages.keys()].some((rel) => text.includes(`](${rel}`))) return true;
+  const ok = await ask("貼り付けた画像が保存されていません。保存してから更新しますか？", {
+    title: "Markdown Preview",
+    kind: "warning",
+    okLabel: "保存して更新",
+    cancelLabel: "キャンセル",
+  });
+  return ok && saveFile();
+}
+
+function startUpdate() {
+  state.updating = true;
+  editor.setReadOnly(true);
+  const draft: Draft = {
+    path: state.path,
+    text: state.dirty && isKeepDraftEnabled() ? editor.getText() : null,
+  };
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {
+    throw new Error("未保存の変更を退避できませんでした。保存してから更新してください。");
+  }
+}
+
+function endUpdate() {
+  state.updating = false;
+  editor.setReadOnly(false);
+  localStorage.removeItem(DRAFT_KEY);
+}
+
+/**
+ * 更新前に退避した状態を戻す。戻したら true。
+ * ファイルを指定して起動されたときはそちらを開くが、未保存の変更があればそれを優先する（失わないため）
+ */
+async function restoreDraft(initialFile: string | null): Promise<boolean> {
+  const raw = localStorage.getItem(DRAFT_KEY);
+  localStorage.removeItem(DRAFT_KEY);
+  let draft: Draft | null = null;
+  try {
+    draft = raw ? JSON.parse(raw) : null;
+  } catch {
+    // 壊れていれば捨てる
+  }
+  if (!draft || (initialFile && draft.text == null)) return false;
+  // ファイルが消えていて開けなければ、無題の文書として本文だけ戻す
+  if (draft.path) await openFile(draft.path);
+  if (draft.text == null) return state.path != null;
+  editor.setText(draft.text);
+  setDirty(draft.text !== state.savedText);
+  await render();
+  if (state.dirty) {
+    await message("更新前の未保存の変更を復元しました（まだ保存されていません）。", {
+      title: "Markdown Preview",
+      kind: "info",
+    });
+  }
+  return true;
+}
+
+setupUpdater({ beforeInstall: beforeUpdate, onStart: startUpdate, onEnd: endUpdate });
 void listen("check-update", async () => {
   await appWindow.setFocus();
   await checkForUpdate(true);
@@ -432,6 +509,7 @@ void listen("check-update", async () => {
 
 // ヘルプの「エディタに挿入」
 void listen<string>("insert-snippet", async (e) => {
+  if (state.updating) return;
   if (state.mode === "preview") setMode("split");
   editor.insert(e.payload);
   await appWindow.setFocus();
@@ -579,6 +657,6 @@ void appWindow.onCloseRequested(async (e) => {
 setMode(state.mode);
 updateTitle();
 render();
-void invoke<string | null>("initial_file").then((p) => {
-  if (p) void openFile(p);
+void invoke<string | null>("initial_file").then(async (p) => {
+  if (!(await restoreDraft(p)) && p) await openFile(p);
 });

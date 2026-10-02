@@ -55,6 +55,7 @@
         "mimeType": "text/markdown"
       }
     ],
+    "resources": { "icons/md-document.ico": "md-document.ico" },
     "windows": {
       "nsis": {
         "installMode": "currentUser",

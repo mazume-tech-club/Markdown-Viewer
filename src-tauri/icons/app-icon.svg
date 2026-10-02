@@ -1,32 +1,12 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- アイコンの元画像。変更したら `npx tauri icon src-tauri/icons/app-icon.svg` で各サイズを再生成する -->
-  <defs>
-    <!-- 鉛筆の形（先端が左下を向く）。描画とくり抜きの両方で使う -->
-    <path id="pencil" d="M-130 0 L0 -78 H390 V78 H0 Z"/>
-    <!-- 鉛筆の周りだけ資料の線を消して隙間を作る -->
-    <mask id="cut" maskUnits="userSpaceOnUse" x="0" y="0" width="1024" height="1024">
-      <rect width="1024" height="1024" fill="#fff"/>
-      <use href="#pencil" transform="translate(560 868) rotate(-45)" fill="#000" stroke="#000" stroke-width="170" stroke-linejoin="round"/>
-    </mask>
-  </defs>
-
-  <g fill="none" stroke="#1E88E5" stroke-width="64" stroke-linecap="round" stroke-linejoin="round">
-    <!-- 資料 -->
-    <g mask="url(#cut)">
-      <path d="M240 104 H592 L792 304 V920 H240 Z"/>
-      <path d="M592 104 V304 H792"/>
-      <!-- MD -->
-      <g stroke-width="56">
-        <path d="M304 528 V368 L374 450 L444 368 V528"/>
-        <path d="M524 368 V528 H564 Q644 528 644 448 Q644 368 564 368 Z"/>
-        
-      </g>
-      <path d="M312 660 H468"/>
-    </g>
-    <!-- 鉛筆 -->
-    <g transform="translate(560 868) rotate(-45)">
-      <use href="#pencil"/>
-      <path d="M300 -78 V78"/>
-    </g>
+  <!-- アプリのアイコンの元画像。変更したら `npx tauri icon src-tauri/icons/app-icon.svg` で各サイズを再生成する。
+       .md ファイルのアイコン（資料の形）は md-document.svg / md-document.ico -->
+  <rect x="48" y="48" width="928" height="928" rx="192" fill="#1E88E5"/>
+  <g fill="none" stroke="#fff" stroke-width="96" stroke-linecap="round" stroke-linejoin="round">
+    <!-- M -->
+    <path d="M216 712 V312 L366 504 L516 312 V712"/>
+    <!-- ↓ -->
+    <path d="M736 312 V592"/>
   </g>
+  <path d="M600 560 H872 L736 736 Z" fill="#fff" stroke="#fff" stroke-width="32" stroke-linejoin="round"/>
 </svg>
