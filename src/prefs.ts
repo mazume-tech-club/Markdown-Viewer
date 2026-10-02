@@ -1,5 +1,5 @@
 // ---------- 編集位置のハイライト（編集 → プレビュー切替時） ----------
-// 設定はヘルプウィンドウで変更し、メインウィンドウは storage イベントで追従する
+// 設定はメインウィンドウの設定画面で変更する
 
 const ENABLED_KEY = "activeLine.enabled";
 export const ACTIVE_LINE_COLOR_KEY = "activeLine.color";
