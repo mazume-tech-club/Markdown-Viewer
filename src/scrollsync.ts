@@ -14,7 +14,24 @@ function anchors(pane: HTMLElement): { line: number; top: number }[] {
   return out;
 }
 
-/** エディタとプレビューのスクロール位置を、ソース行を介して連動させる */
+/** ソース行 line を含むプレビュー要素（行番号が line 以下で最大のもの。同じ行なら内側） */
+export function findLineElement(pane: HTMLElement, line: number): HTMLElement | null {
+  let best: HTMLElement | null = null;
+  let bestLine = -1;
+  for (const el of pane.querySelectorAll<HTMLElement>("[data-line]")) {
+    const l = Number(el.dataset.line);
+    if (l <= line && l >= bestLine) {
+      best = el;
+      bestLine = l;
+    }
+  }
+  return best;
+}
+
+/**
+ * エディタとプレビューのスクロール位置を、ソース行を介して連動させる。
+ * 戻り値はプレビューをエディタの位置に合わせる関数（表示切替時に使う）
+ */
 export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () => boolean) {
   // 片方を動かしたことで発火した、もう片方のスクロールイベントを無視する
   let lockUntil = 0;
@@ -25,9 +42,7 @@ export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () =
   };
   const locked = (s: typeof source) => source !== s && performance.now() < lockUntil;
 
-  editor.view.scrollDOM.addEventListener("scroll", () => {
-    if (!enabled() || locked("editor")) return;
-    lock("editor");
+  const syncPreview = () => {
     const line = editor.topLine();
     const list = anchors(pane);
     if (!list.length) return;
@@ -37,6 +52,12 @@ export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () =
     const next = list[i] ?? { line: editor.view.state.doc.lines, top: pane.scrollHeight };
     const ratio = next.line === prev.line ? 0 : (line - prev.line) / (next.line - prev.line);
     pane.scrollTop = prev.top + (next.top - prev.top) * ratio;
+  };
+
+  editor.view.scrollDOM.addEventListener("scroll", () => {
+    if (!enabled() || locked("editor")) return;
+    lock("editor");
+    syncPreview();
   });
 
   pane.addEventListener("scroll", () => {
@@ -52,4 +73,9 @@ export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () =
     const ratio = next.top === prev.top ? 0 : (y - prev.top) / (next.top - prev.top);
     editor.scrollToLine(Math.round(prev.line + (next.line - prev.line) * ratio));
   });
+
+  return () => {
+    lock("editor");
+    syncPreview();
+  };
 }

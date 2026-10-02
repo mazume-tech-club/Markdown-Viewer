@@ -15,6 +15,10 @@ export interface Editor {
   /** 先頭に見えている行（0 始まり） */
   topLine(): number;
   scrollToLine(line: number): void;
+  /** カーソルのある行（0 始まり） */
+  cursorLine(): number;
+  /** カーソルの、表示領域上端からの位置（px）。画面外なら null */
+  cursorOffset(): number | null;
 }
 
 /** 画像の貼り付けを受け取り、挿入する Markdown を返す（null なら何もしない） */
@@ -95,6 +99,16 @@ export function createEditor(
       const n = Math.max(1, Math.min(line + 1, view.state.doc.lines));
       const block = view.lineBlockAt(view.state.doc.line(n).from);
       view.scrollDOM.scrollTop = block.top;
+    },
+    cursorLine() {
+      return view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+    },
+    cursorOffset() {
+      const coords = view.coordsAtPos(view.state.selection.main.head);
+      if (!coords) return null;
+      const rect = view.scrollDOM.getBoundingClientRect();
+      const y = coords.top - rect.top;
+      return y >= 0 && y <= rect.height ? y : null;
     },
   };
 }

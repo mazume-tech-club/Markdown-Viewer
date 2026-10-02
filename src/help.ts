@@ -12,6 +12,7 @@ import helpSource from "./help/help.md?raw";
 import { renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
 import { isAutoCheckEnabled, setAutoCheck } from "./updater";
+import { getActiveLineColor, isActiveLineEnabled, setActiveLineColor, setActiveLineEnabled } from "./prefs";
 
 interface Item {
   id: string;
@@ -181,6 +182,18 @@ document.getElementById("btn-check-update")!.addEventListener("click", () => voi
 const autoUpdate = document.getElementById("auto-update") as HTMLInputElement;
 autoUpdate.checked = isAutoCheckEnabled();
 autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
+
+// 編集 → プレビュー切替時の編集位置の色付け（メインウィンドウは storage イベントで追従）
+const activeLine = document.getElementById("active-line") as HTMLInputElement;
+const activeLineColor = document.getElementById("active-line-color") as HTMLInputElement;
+activeLine.checked = isActiveLineEnabled();
+activeLineColor.value = getActiveLineColor();
+activeLine.addEventListener("change", () => setActiveLineEnabled(activeLine.checked));
+activeLineColor.addEventListener("input", () => setActiveLineColor(activeLineColor.value));
+document.getElementById("active-line-reset")!.addEventListener("click", () => {
+  setActiveLineColor(null);
+  activeLineColor.value = getActiveLineColor();
+});
 
 // ズーム（本文のみ）
 let zoom = Number(localStorage.getItem("zoom.help")) || 1;

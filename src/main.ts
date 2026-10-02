@@ -12,7 +12,8 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { renderMarkdown } from "./render";
 import { fillCached, renderDiagrams } from "./diagrams";
 import { createEditor } from "./editor";
-import { setupScrollSync } from "./scrollsync";
+import { findLineElement, setupScrollSync } from "./scrollsync";
+import { ACTIVE_LINE_COLOR_KEY, applyActiveLineColor, isActiveLineEnabled } from "./prefs";
 import { checkForUpdate, setupUpdater } from "./updater";
 import { basename, dirname, hasScheme, isMarkdownPath, resolvePath } from "./paths";
 
@@ -55,8 +56,16 @@ function scheduleRender(delay = 150) {
   renderTimer = window.setTimeout(render, delay);
 }
 
+/** 入力直後で描画待ちなら、すぐに描画する */
+function flushRender() {
+  if (!renderTimer) return;
+  clearTimeout(renderTimer);
+  void render();
+}
+
 /** 描画する。戻り値は図の描画が終わるまで待つ Promise */
 function render(): Promise<void> {
+  renderTimer = 0;
   const gen = ++state.renderGen;
   const dark = darkQuery.matches && !state.forceLight;
   const text = editor.getText();
@@ -122,7 +131,7 @@ const editor = createEditor(
   },
   onPasteImage,
 );
-setupScrollSync(editor, previewPane, () => state.mode === "split");
+const syncPreviewToEditor = setupScrollSync(editor, previewPane, () => state.mode === "split");
 
 darkQuery.addEventListener("change", () => {
   editor.setDark(darkQuery.matches);
@@ -132,14 +141,47 @@ darkQuery.addEventListener("change", () => {
 // ---------- 表示モード ----------
 
 function setMode(mode: Mode) {
+  const prev = state.mode;
+  // 編集モード中はプレビューが幅 0 で位置を保てないので、切替後にカーソル位置へ合わせる
+  const cursor =
+    prev === "editor" && mode !== "editor"
+      ? { line: editor.cursorLine(), offset: editor.cursorOffset() }
+      : null;
   state.mode = mode;
   main.dataset.mode = mode;
   localStorage.setItem("mode", mode);
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]")) {
     b.classList.toggle("active", b.dataset.mode === mode);
   }
+  clearActiveLine();
   if (mode !== "preview") editor.view.focus();
+  if (!cursor) return;
+  flushRender();
+  requestAnimationFrame(() => {
+    if (state.mode !== mode) return;
+    if (mode === "split") syncPreviewToEditor();
+    else showActiveLine(cursor.line, cursor.offset);
+  });
 }
+
+/** ソース行 line の要素を、エディタでカーソルがあった高さ（offset）に表示してハイライトする */
+function showActiveLine(line: number, offset: number | null) {
+  const el = findLineElement(preview, line);
+  if (!el) return;
+  const paneTop = previewPane.getBoundingClientRect().top;
+  const elTop = el.getBoundingClientRect().top - paneTop + previewPane.scrollTop;
+  previewPane.scrollTop = elTop - (offset ?? previewPane.clientHeight / 3);
+  if (isActiveLineEnabled()) el.classList.add("active-line");
+}
+
+function clearActiveLine() {
+  for (const el of preview.querySelectorAll(".active-line")) el.classList.remove("active-line");
+}
+
+applyActiveLineColor();
+window.addEventListener("storage", (e) => {
+  if (e.key === ACTIVE_LINE_COLOR_KEY) applyActiveLineColor();
+});
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]")) {
   b.addEventListener("click", () => setMode(b.dataset.mode as Mode));
 }

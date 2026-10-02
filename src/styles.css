@@ -9,6 +9,8 @@
   --banner: #fff8c5;
   --error: #d1242f;
   --split: 50%;
+  /* 編集 → プレビュー切替時のハイライト色（ヘルプの設定で変更できる） */
+  --active-line: #ffd33d;
   color-scheme: light dark;
 }
 @media screen and (prefers-color-scheme: dark) {
@@ -125,6 +127,13 @@ button:hover { background: var(--btn-hover); }
 }
 .markdown-body pre code { font-family: "Cascadia Code", Consolas, "BIZ UDGothic", monospace; }
 .markdown-body .hljs { background: transparent; padding: 0; }
+/* 編集位置のハイライト。背景色（コードブロックや表の縞）を残すよう、画像として上に重ねる */
+.markdown-body .active-line {
+  --active-line-bg: color-mix(in srgb, var(--active-line) 22%, transparent);
+  background-image: linear-gradient(var(--active-line-bg), var(--active-line-bg));
+  box-shadow: -8px 0 0 0 var(--active-line-bg), 8px 0 0 0 var(--active-line-bg);
+  border-radius: 2px;
+}
 
 .empty-state {
   margin-top: 20vh;
@@ -207,4 +216,5 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
   .markdown-body { max-width: none; padding: 0; zoom: 1 !important; }
   .diagram, .markdown-body pre, .markdown-body table, .markdown-body img { break-inside: avoid; }
   .markdown-body h1, .markdown-body h2, .markdown-body h3 { break-after: avoid; }
+  .markdown-body .active-line { background-image: none; box-shadow: none; }
 }
