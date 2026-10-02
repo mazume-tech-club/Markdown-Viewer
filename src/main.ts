@@ -5,6 +5,7 @@ import { invoke, convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getVersion } from "@tauri-apps/api/app";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open as openDialog, save as saveDialog, ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -13,8 +14,14 @@ import { renderMarkdown } from "./render";
 import { fillCached, renderDiagrams } from "./diagrams";
 import { createEditor } from "./editor";
 import { findLineElement, setupScrollSync } from "./scrollsync";
-import { ACTIVE_LINE_COLOR_KEY, applyActiveLineColor, isActiveLineEnabled } from "./prefs";
-import { checkForUpdate, isKeepDraftEnabled, setupUpdater } from "./updater";
+import {
+  applyActiveLineColor,
+  getActiveLineColor,
+  isActiveLineEnabled,
+  setActiveLineColor,
+  setActiveLineEnabled,
+} from "./prefs";
+import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft, setupUpdater } from "./updater";
 import { basename, dirname, hasScheme, isMarkdownPath, resolvePath } from "./paths";
 
 type Mode = "editor" | "split" | "preview";
@@ -181,9 +188,6 @@ function clearActiveLine() {
 }
 
 applyActiveLineColor();
-window.addEventListener("storage", (e) => {
-  if (e.key === ACTIVE_LINE_COLOR_KEY) applyActiveLineColor();
-});
 for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]")) {
   b.addEventListener("click", () => setMode(b.dataset.mode as Mode));
 }
@@ -401,6 +405,7 @@ $("btn-new").addEventListener("click", () => newFile());
 $("btn-open").addEventListener("click", () => openWithPrompt());
 $("btn-save").addEventListener("click", () => saveFile());
 $("btn-pdf").addEventListener("click", () => previewPdf());
+$("btn-settings").addEventListener("click", () => openSettings());
 $("btn-help").addEventListener("click", () => openHelp());
 
 /** 書き方ヘルプを別ウィンドウで開く（開いていれば前面に出す） */
@@ -424,8 +429,60 @@ themeBtn.addEventListener("click", async () => {
 window.addEventListener("storage", (e) => e.key === "theme" && updateThemeButton());
 updateThemeButton();
 
+// ---------- 設定 ----------
+// 設定は localStorage に保存する。storage イベントは同じウィンドウでは発火しないので、
+// 変更したらここで直接反映する（ヘルプウィンドウはテーマだけ storage イベントで追従）
+
+const settingsOverlay = $("settings");
+const setTheme = $<HTMLSelectElement>("set-theme");
+const activeLine = $<HTMLInputElement>("active-line");
+const activeLineColor = $<HTMLInputElement>("active-line-color");
+const autoUpdate = $<HTMLInputElement>("auto-update");
+const keepDraft = $<HTMLInputElement>("keep-draft");
+
+/** 設定画面を開く（開くたびに現在の値を読み直す） */
+function openSettings() {
+  setTheme.value = getThemePref();
+  activeLine.checked = isActiveLineEnabled();
+  activeLineColor.value = getActiveLineColor();
+  autoUpdate.checked = isAutoCheckEnabled();
+  keepDraft.checked = isKeepDraftEnabled();
+  settingsOverlay.hidden = false;
+  $("settings-close").focus();
+}
+
+function closeSettings() {
+  settingsOverlay.hidden = true;
+}
+
+void getVersion().then((v) => ($("app-version").textContent = `Markdown Preview v${v}`));
+$("settings-close").addEventListener("click", () => closeSettings());
+// パネルの外（背景）をクリックしたら閉じる
+settingsOverlay.addEventListener("click", (e) => e.target === settingsOverlay && closeSettings());
+setTheme.addEventListener("change", async () => {
+  await setThemePref(setTheme.value as ThemePref);
+  updateThemeButton();
+});
+activeLine.addEventListener("change", () => setActiveLineEnabled(activeLine.checked));
+activeLineColor.addEventListener("input", () => {
+  setActiveLineColor(activeLineColor.value);
+  applyActiveLineColor();
+});
+$("active-line-reset").addEventListener("click", () => {
+  setActiveLineColor(null);
+  activeLineColor.value = getActiveLineColor();
+  applyActiveLineColor();
+});
+autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
+keepDraft.addEventListener("change", () => setKeepDraft(keepDraft.checked));
+// 確認結果のバナーやダイアログが見えるよう、先に設定画面を閉じる
+$("btn-check-update").addEventListener("click", () => {
+  closeSettings();
+  void checkForUpdate(true);
+});
+
 // ---------- バージョンアップ ----------
-// 起動時に自動確認（ヘルプで切り替え可）。ヘルプの「更新を確認」からも呼ばれる。
+// 起動時に自動確認（設定で切り替え可）。設定の「更新を確認」からも呼ばれる。
 // 更新するとアプリは終了してインストール後に再起動されるので、開いていたファイルと
 // （設定がオンなら）未保存の変更を退避し、再起動後に復元する
 
@@ -502,10 +559,6 @@ async function restoreDraft(initialFile: string | null): Promise<boolean> {
 }
 
 setupUpdater({ beforeInstall: beforeUpdate, onStart: startUpdate, onEnd: endUpdate });
-void listen("check-update", async () => {
-  await appWindow.setFocus();
-  await checkForUpdate(true);
-});
 
 // ヘルプの「エディタに挿入」
 void listen<string>("insert-snippet", async (e) => {
@@ -607,12 +660,14 @@ window.addEventListener(
       fn();
     };
     if (!pdfOverlay.hidden && e.key === "Escape") run(() => closePdfPreview());
+    else if (!settingsOverlay.hidden && e.key === "Escape") run(() => closeSettings());
     else if (!pdfOverlay.hidden && mod && key === "s") run(() => savePdf());
     else if (mod && key === "s") run(() => saveFile(e.shiftKey));
     else if (mod && key === "o") run(() => openWithPrompt());
     else if (mod && key === "n") run(() => newFile());
     else if (mod && key === "p") run(() => previewPdf());
     else if (e.key === "F1") run(() => openHelp());
+    else if (mod && e.key === ",") run(() => openSettings());
     // JIS 配列では「+」が Shift+; なので ; も拡大として扱う
     else if (mod && ["+", "=", ";"].includes(e.key)) run(() => changeZoom(focusedTarget(), 0.1));
     else if (mod && ["-", "_"].includes(e.key)) run(() => changeZoom(focusedTarget(), -0.1));

@@ -9,7 +9,7 @@
   --banner: #fff8c5;
   --error: #d1242f;
   --split: 50%;
-  /* 編集 → プレビュー切替時のハイライト色（ヘルプの設定で変更できる） */
+  /* 編集 → プレビュー切替時のハイライト色（設定画面で変更できる） */
   --active-line: #ffd33d;
   color-scheme: light dark;
 }
@@ -206,10 +206,55 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 #pdf-frame { flex: 1; border: 0; width: 100%; background: #525659; }
 
+/* 設定 */
+.settings {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 40%);
+}
+.settings[hidden] { display: none; }
+.settings-panel {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border);
+}
+.settings-section { padding: 8px 16px 12px; }
+.settings-section + .settings-section { border-top: 1px solid var(--border); }
+.settings-section h3 { margin: 4px 0 6px; font-size: 12px; color: var(--muted); }
+.settings-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.settings-row .grow { flex: 1; }
+.settings .version { color: var(--muted); }
+.settings button { border-color: var(--border); }
+.settings select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.settings input[type="color"] { width: 32px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
+
 /* 印刷・PDF 出力: プレビューだけを白地で出す */
 @media print {
   @page { margin: 15mm 12mm; }
-  #toolbar, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview { display: none !important; }
+  #toolbar, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings { display: none !important; }
   html, body { height: auto; overflow: visible; background: #fff; }
   body, #main { display: block; }
   #preview-pane { overflow: visible; visibility: visible !important; }

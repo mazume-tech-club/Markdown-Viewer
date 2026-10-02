@@ -11,6 +11,7 @@
       <button id="btn-open" title="開く (Ctrl+O)">開く</button>
       <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
       <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
+      <button id="btn-settings" title="設定 (Ctrl+,)">設定</button>
       <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
       <button id="btn-theme" title="テーマ（自動 / ライト / ダーク）">自動</button>
       <span id="filename" class="filename"></span>
@@ -49,6 +50,42 @@
         <button id="pdf-close" title="閉じる (Esc)">閉じる</button>
       </div>
       <iframe id="pdf-frame" title="PDF プレビュー"></iframe>
+    </div>
+    <div id="settings" class="settings" hidden>
+      <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="settings-head">
+          <strong id="settings-title">設定</strong>
+          <button id="settings-close" title="閉じる (Esc)">閉じる</button>
+        </div>
+        <section class="settings-section">
+          <h3>表示</h3>
+          <label class="settings-row">
+            <span class="grow">テーマ</span>
+            <select id="set-theme">
+              <option value="system">自動</option>
+              <option value="light">ライト</option>
+              <option value="dark">ダーク</option>
+            </select>
+          </label>
+        </section>
+        <section class="settings-section">
+          <h3>編集</h3>
+          <div class="settings-row">
+            <label class="grow"><input id="active-line" type="checkbox" /> 編集→プレビューで編集位置を色付け</label>
+            <input id="active-line-color" type="color" title="色付けの色" />
+            <button id="active-line-reset" title="既定の色に戻す">既定</button>
+          </div>
+        </section>
+        <section class="settings-section">
+          <h3>更新</h3>
+          <div class="settings-row">
+            <span id="app-version" class="grow version">Markdown Preview</span>
+            <button id="btn-check-update" title="GitHub の最新リリースを確認">更新を確認</button>
+          </div>
+          <label class="settings-row"><input id="auto-update" type="checkbox" /> 起動時に自動で更新を確認</label>
+          <label class="settings-row" title="オフにすると、更新前に未保存の変更を破棄するか確認します"><input id="keep-draft" type="checkbox" /> 更新時、未保存の変更を再起動後に復元</label>
+        </section>
+      </div>
     </div>
     <div id="dropzone" hidden><div>ここにドロップして開く</div></div>
     <script type="module" src="/src/main.ts"></script>

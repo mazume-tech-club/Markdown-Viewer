@@ -11,8 +11,6 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import helpSource from "./help/help.md?raw";
 import { renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
-import { isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft } from "./updater";
-import { getActiveLineColor, isActiveLineEnabled, setActiveLineColor, setActiveLineEnabled } from "./prefs";
 
 interface Item {
   id: string;
@@ -176,27 +174,8 @@ document.addEventListener("click", async (e) => {
 
 search.addEventListener("input", filter);
 
-// バージョンと更新の確認（確認・更新の画面はメインウィンドウ側で出す）
+// バージョン（設定や更新の確認はメインウィンドウの「設定」で行う）
 void getVersion().then((v) => (document.getElementById("app-version")!.textContent = `Markdown Preview v${v}`));
-document.getElementById("btn-check-update")!.addEventListener("click", () => void emitTo("main", "check-update"));
-const autoUpdate = document.getElementById("auto-update") as HTMLInputElement;
-autoUpdate.checked = isAutoCheckEnabled();
-autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
-const keepDraft = document.getElementById("keep-draft") as HTMLInputElement;
-keepDraft.checked = isKeepDraftEnabled();
-keepDraft.addEventListener("change", () => setKeepDraft(keepDraft.checked));
-
-// 編集 → プレビュー切替時の編集位置の色付け（メインウィンドウは storage イベントで追従）
-const activeLine = document.getElementById("active-line") as HTMLInputElement;
-const activeLineColor = document.getElementById("active-line-color") as HTMLInputElement;
-activeLine.checked = isActiveLineEnabled();
-activeLineColor.value = getActiveLineColor();
-activeLine.addEventListener("change", () => setActiveLineEnabled(activeLine.checked));
-activeLineColor.addEventListener("input", () => setActiveLineColor(activeLineColor.value));
-document.getElementById("active-line-reset")!.addEventListener("click", () => {
-  setActiveLineColor(null);
-  activeLineColor.value = getActiveLineColor();
-});
 
 // ズーム（本文のみ）
 let zoom = Number(localStorage.getItem("zoom.help")) || 1;
