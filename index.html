@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Markdown Preview</title>
+  </head>
+  <body>
+    <header id="toolbar">
+      <button id="btn-new" title="新規 (Ctrl+N)">新規</button>
+      <button id="btn-open" title="開く (Ctrl+O)">開く</button>
+      <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
+      <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
+      <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
+      <button id="btn-theme" title="テーマ（自動 / ライト / ダーク）">自動</button>
+      <span id="filename" class="filename"></span>
+      <button id="zoom-label" class="zoom-label" title="ズーム（Ctrl+ホイール / Ctrl+＋− / クリックで 100%）">100%</button>
+      <div class="segmented" role="group" aria-label="表示モード">
+        <button data-mode="editor" title="エディタのみ (Ctrl+1)">編集</button>
+        <button data-mode="split" title="分割 (Ctrl+2)">分割</button>
+        <button data-mode="preview" title="プレビューのみ (Ctrl+3)">プレビュー</button>
+      </div>
+    </header>
+    <div id="banner" class="banner" hidden>
+      <span>ファイルが外部で変更されました。編集中の内容は未保存です。</span>
+      <button id="banner-reload">再読み込み</button>
+      <button id="banner-ignore">無視</button>
+    </div>
+    <main id="main" data-mode="preview">
+      <section id="editor-pane"></section>
+      <div id="divider" role="separator" aria-orientation="vertical"></div>
+      <section id="preview-pane">
+        <article id="preview" class="markdown-body"></article>
+      </section>
+    </main>
+    <div id="pdf-preview" class="pdf-preview" hidden>
+      <div class="pdf-bar">
+        <strong>PDF プレビュー</strong>
+        <span class="pdf-hint">内容を確認して「保存」。印刷はビューアの印刷ボタンから</span>
+        <button id="pdf-save" class="primary">保存…</button>
+        <button id="pdf-close" title="閉じる (Esc)">閉じる</button>
+      </div>
+      <iframe id="pdf-frame" title="PDF プレビュー"></iframe>
+    </div>
+    <div id="dropzone" hidden><div>ここにドロップして開く</div></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
