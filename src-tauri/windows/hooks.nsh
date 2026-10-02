@@ -36,3 +36,11 @@
     ${EndIf}
   ${EndIf}
 !macroend
+
+; .md ファイルにアプリと別のアイコン（資料の形）を付ける（Issue #4）。
+; 標準のファイル関連付けはアイコンをアプリの exe に固定するので、関連付けの後で上書きする。
+; アイコンは bundle.resources で $INSTDIR に置き、アンインストール時は関連付けと一緒に消える
+!macro NSIS_HOOK_POSTINSTALL
+  WriteRegStr SHCTX "Software\Classes\Markdown\DefaultIcon" "" "$INSTDIR\md-document.ico"
+  !insertmacro UPDATEFILEASSOC
+!macroend

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
-  <!-- アイコンの元画像。変更したら `npx tauri icon src-tauri/icons/app-icon.svg` で各サイズを再生成する -->
+  <!-- .md ファイルのアイコンの元画像（md-document.ico）。アプリのアイコンは app-icon.svg -->
   <defs>
     <!-- 鉛筆の形（先端が左下を向く）。描画とくり抜きの両方で使う -->
     <path id="pencil" d="M-130 0 L0 -78 H390 V78 H0 Z"/>
