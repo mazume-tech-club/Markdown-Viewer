@@ -13,6 +13,7 @@ import { renderMarkdown } from "./render";
 import { fillCached, renderDiagrams } from "./diagrams";
 import { createEditor } from "./editor";
 import { setupScrollSync } from "./scrollsync";
+import { checkForUpdate, setupUpdater } from "./updater";
 import { basename, dirname, hasScheme, isMarkdownPath, resolvePath } from "./paths";
 
 type Mode = "editor" | "split" | "preview";
@@ -378,6 +379,14 @@ themeBtn.addEventListener("click", async () => {
 });
 window.addEventListener("storage", (e) => e.key === "theme" && updateThemeButton());
 updateThemeButton();
+
+// ---------- バージョンアップ ----------
+// 起動時に自動確認（ヘルプで切り替え可）。ヘルプの「更新を確認」からも呼ばれる
+setupUpdater(confirmDiscard);
+void listen("check-update", async () => {
+  await appWindow.setFocus();
+  await checkForUpdate(true);
+});
 
 // ヘルプの「エディタに挿入」
 void listen<string>("insert-snippet", async (e) => {

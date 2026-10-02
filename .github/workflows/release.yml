@@ -1,0 +1,69 @@
+# v*.*.* のタグを push すると、ビルド・署名して GitHub Release を作成する。
+# Release には インストーラ / 署名(.sig) / latest.json（アプリの自動更新が参照する）が添付される。
+#
+# リリース手順:
+#   1. package.json / src-tauri/Cargo.toml / src-tauri/tauri.conf.json の version を上げてコミット
+#   2. git tag vX.Y.Z && git push origin main vX.Y.Z
+#
+# 必要な Secrets: TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+name: Release
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches app version
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $tag = "${{ github.ref_name }}".TrimStart("v")
+          if ($conf.version -ne $tag) {
+            Write-Error "タグ ($tag) と tauri.conf.json の version ($($conf.version)) が一致しません"
+            exit 1
+          }
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: npm ci
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Markdown Preview ${{ github.ref_name }}
+          releaseBody: |
+            ## インストール
+            下の **Assets** から `Markdown.Preview_*_x64-setup.exe` をダウンロードして実行してください。
+            v1.1.0 以降をお使いの場合は、起動時のお知らせ（またはヘルプの「更新を確認」）から自動で更新できます。
+
+            > 署名していないインストーラのため、初回実行時に Windows SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で進めてください。
+
+            使い方は [README](https://github.com/${{ github.repository }}#readme) を参照してください。
+          releaseDraft: false
+          prerelease: false
+          generateReleaseNotes: true
+          uploadUpdaterJson: true

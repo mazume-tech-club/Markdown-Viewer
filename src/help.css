@@ -39,6 +39,14 @@ body.help {
 #toc [hidden] { display: none; }
 .toc-title { font-weight: 600; margin-top: 8px; }
 .toc-item { padding-left: 18px !important; color: var(--muted) !important; }
+.about {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.about-row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.about .version { flex: 1; color: var(--muted); }
+.about button { border-color: var(--border); font-size: 12px; padding: 2px 8px; }
 .hint {
   margin: 0;
   padding: 8px 12px;

@@ -8,6 +8,7 @@ Mermaid（C4 含む）・Graphviz・WaveDrom の図もアプリ内で描画し�
 - スクリーンショットを貼り付けると、保存時に `assets/` フォルダへ画像も一緒に保存
 - PDF 出力（プレビューで確認してから保存）
 - 書き方ヘルプ（F1）で Markdown / Mermaid / C4 などの書き方をすぐ確認できる
+- バージョンアップ機能（GitHub の最新リリースを確認して、ワンクリックで更新）
 
 ---
 
@@ -25,6 +26,7 @@ Mermaid（C4 含む）・Graphviz・WaveDrom の図もアプリ内で描画し�
   - [PDF に出力する](#pdf-に出力する)
   - [書き方ヘルプ](#書き方ヘルプ)
   - [テーマ・ズーム](#テーマズーム)
+  - [バージョンアップ](#バージョンアップ)
 - [キーボードショートカット](#キーボードショートカット)
 - [注意事項・制限](#注意事項制限)
 - [開発者向け](#開発者向け)
@@ -177,6 +179,19 @@ C4Context
 - **テーマ**: ツールバーのボタンで **◐ 自動**（Windows の設定に合わせる）→ **☀ ライト** → **☾ ダーク** と切り替わります。設定は次回の起動時にも引き継がれ、ヘルプウィンドウにも反映されます
 - **ズーム**: **Ctrl+マウスホイール** で、マウスの下にあるペイン（プレビュー／エディタ）を個別に拡大縮小できます。Ctrl+＋ / Ctrl+− / Ctrl+0（100%）も使えます。ツールバーの倍率表示をクリックすると 100% に戻ります
 
+### バージョンアップ
+
+起動時に、このリポジトリの [GitHub Releases](https://github.com/mazume-tech-club/Markdown-Viewer/releases) に新しいバージョンがないかを確認します。
+
+1. 新しいバージョンがあると、画面上部に「新しいバージョン vX.Y.Z が利用できます」と表示される
+2. **更新して再起動** を押すと、ダウンロード → インストール → 再起動が自動で行われる（**変更内容** でリリースノートを確認、**後で** で閉じる）
+3. 手動で確認したいときは、ヘルプ（F1）左下の **更新を確認** を押す
+
+- ネットワークに接続するのは、この確認とダウンロードのときだけです。オフラインのときは何も表示されません
+- 起動時の自動確認は、ヘルプ左下の「起動時に自動で更新を確認」で止められます
+- 更新ファイルは署名を検証してからインストールされます
+- v1.0.0 には更新機能がないため、v1.1.0 だけは手動でインストールしてください
+
 ---
 
 ## キーボードショートカット
@@ -235,6 +250,27 @@ cd src-tauri; cargo test # Rust の単体テスト
 | `src-tauri/target/release/markdown-preview.exe` | アプリ本体（単体で起動可） |
 | `src-tauri/target/release/bundle/nsis/Markdown Preview_x.y.z_x64-setup.exe` | インストーラ |
 
+### リリース手順
+
+GitHub Actions（`.github/workflows/release.yml`）がビルド・署名・Release 作成を自動で行います。
+
+1. `package.json` / `src-tauri/Cargo.toml` / `src-tauri/tauri.conf.json` の `version` を上げてコミット
+2. タグを付けて push する
+
+   ```powershell
+   git tag v1.2.0
+   git push origin main v1.2.0
+   ```
+
+3. Actions が完了すると Release が公開され、インストーラ・署名（`.sig`）・`latest.json` が添付される。インストール済みのアプリは次の起動時に更新を検知する
+
+| Secrets | 内容 |
+|---|---|
+| `TAURI_SIGNING_PRIVATE_KEY` | 更新ファイルに署名する秘密鍵 |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 秘密鍵のパスワード |
+
+> 秘密鍵をなくすと、インストール済みのアプリへ更新を配信できなくなります。鍵は安全な場所にバックアップしてください（公開鍵は `tauri.conf.json` の `plugins.updater.pubkey`）。
+
 ### フォルダ構成
 
 ```
@@ -246,12 +282,14 @@ cd src-tauri; cargo test # Rust の単体テスト
 │  ├─ editor.ts               エディタ（CodeMirror 6）
 │  ├─ scrollsync.ts           分割表示のスクロール同期
 │  ├─ theme.ts                ライト / ダークの切り替え
+│  ├─ updater.ts              バージョンアップ（更新の確認・インストール）
 │  ├─ help.ts, help.css       ヘルプ画面
 │  └─ help/help.md            ヘルプの内容
 ├─ src-tauri/
 │  ├─ src/lib.rs              Rust 側（ファイル入出力・変更監視・PDF 出力・画像書き出し）
 │  ├─ tauri.conf.json         ウィンドウ・CSP・インストーラの設定
 │  └─ capabilities/           フロントエンドに許可する権限
+├─ .github/workflows/release.yml  タグ push でリリースを作成
 └─ samples/demo.md            動作確認用のサンプル
 ```
 

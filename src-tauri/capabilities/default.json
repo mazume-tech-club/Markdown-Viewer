@@ -16,6 +16,9 @@
     "dialog:allow-ask",
     "dialog:allow-message",
     "opener:allow-open-url",
-    "opener:allow-reveal-item-in-dir"
+    "opener:allow-reveal-item-in-dir",
+    "updater:default",
+    "process:allow-restart",
+    "core:app:allow-version"
   ]
 }

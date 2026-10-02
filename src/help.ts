@@ -5,11 +5,13 @@ import "./help.css";
 import hljs from "highlight.js/lib/common";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import helpSource from "./help/help.md?raw";
 import { renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
+import { isAutoCheckEnabled, setAutoCheck } from "./updater";
 
 interface Item {
   id: string;
@@ -172,6 +174,13 @@ document.addEventListener("click", async (e) => {
 });
 
 search.addEventListener("input", filter);
+
+// バージョンと更新の確認（確認・更新の画面はメインウィンドウ側で出す）
+void getVersion().then((v) => (document.getElementById("app-version")!.textContent = `Markdown Preview v${v}`));
+document.getElementById("btn-check-update")!.addEventListener("click", () => void emitTo("main", "check-update"));
+const autoUpdate = document.getElementById("auto-update") as HTMLInputElement;
+autoUpdate.checked = isAutoCheckEnabled();
+autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
 
 // ズーム（本文のみ）
 let zoom = Number(localStorage.getItem("zoom.help")) || 1;
