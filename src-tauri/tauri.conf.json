@@ -58,7 +58,11 @@
     "windows": {
       "nsis": {
         "installMode": "currentUser",
-        "installerIcon": "icons/icon.ico"
+        "installerIcon": "icons/icon.ico",
+        "languages": ["Japanese", "English"],
+        "displayLanguageSelector": false,
+        "customLanguageFiles": { "Japanese": "windows/Japanese.nsh" },
+        "installerHooks": "windows/hooks.nsh"
       }
     },
     "icon": [
