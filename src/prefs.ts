@@ -8,6 +8,11 @@ export const DEFAULT_ACTIVE_LINE_COLOR = "#ffd33d";
 export const isActiveLineEnabled = () => localStorage.getItem(ENABLED_KEY) !== "0";
 export const setActiveLineEnabled = (on: boolean) => localStorage.setItem(ENABLED_KEY, on ? "1" : "0");
 
+// 分割表示で、プレビューをエディタのカーソルの位置（同じ高さ）に合わせる
+const FOLLOW_KEY = "followCursor";
+export const isFollowCursorEnabled = () => localStorage.getItem(FOLLOW_KEY) !== "0";
+export const setFollowCursorEnabled = (on: boolean) => localStorage.setItem(FOLLOW_KEY, on ? "1" : "0");
+
 export const getActiveLineColor = () => localStorage.getItem(ACTIVE_LINE_COLOR_KEY) || DEFAULT_ACTIVE_LINE_COLOR;
 
 export function setActiveLineColor(color: string | null) {

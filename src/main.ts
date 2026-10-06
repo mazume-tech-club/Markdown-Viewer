@@ -23,6 +23,8 @@ import {
   applyActiveLineColor,
   getActiveLineColor,
   isActiveLineEnabled,
+  isFollowCursorEnabled,
+  setFollowCursorEnabled,
   setActiveLineColor,
   setActiveLineEnabled,
 } from "./prefs";
@@ -50,7 +52,8 @@ const state = {
   updating: false,
 };
 
-type PendingImage = { bytes: Uint8Array; url: string };
+/** 保存待ちの画像（貼り付けた画像・注釈の焼き込み画像）。link は MD に書いたリンク（省略時は mdLink(相対パス)） */
+type PendingImage = { bytes: Uint8Array; url: string; link?: string };
 
 /** 開いているファイル 1 つ分 */
 interface Tab {
@@ -113,7 +116,11 @@ function render(): Promise<void> {
   preview.replaceChildren(tpl.content);
   previewPane.scrollTop = scroll;
   markCursorLine();
-  return renderDiagrams(preview, dark, () => gen === state.renderGen);
+  followCursor();
+  // 図が描けると高さが変わるので、もう一度カーソルの位置に合わせる
+  return renderDiagrams(preview, dark, () => gen === state.renderGen).then(() => {
+    if (gen === state.renderGen) followCursor();
+  });
 }
 
 /**
@@ -189,9 +196,16 @@ const editor = createEditor(
     scheduleRender();
   },
   onPasteImage,
-  () => markCursorLine(),
+  () => {
+    markCursorLine();
+    followCursor();
+  },
 );
-const syncPreviewToEditor = setupScrollSync(editor, previewPane, () => state.mode === "split");
+const syncPreviewToEditor = setupScrollSync(editor, previewPane, () => state.mode === "split", isFollowCursorEnabled);
+/** 分割表示で、プレビューのカーソル行の箇所をエディタのカーソルと同じ高さに表示する（設定でオフにできる） */
+function followCursor() {
+  if (isFollowCursorEnabled()) syncPreviewToEditor();
+}
 
 darkQuery.addEventListener("change", () => {
   editor.setDark(darkQuery.matches);
@@ -675,34 +689,62 @@ async function closeTab(tab: Tab) {
   else renderTabs();
 }
 
+const linkOfPending = (rel: string, img: PendingImage) => img.link ?? mdLink(rel);
+
+/**
+ * 保存待ちの画像が本文から参照されているか。画像のリンクに加えて、注釈のコメントの "src"（元画像）も見る
+ * （注釈を付けた元画像は、コメントからしか参照されないため）
+ */
+const isReferenced = (text: string, rel: string, img: PendingImage) => {
+  const link = linkOfPending(rel, img);
+  return text.includes(`](${link}`) || text.includes(`"src":${JSON.stringify(link)}`);
+};
+
+/** MD のフォルダの下（.. を含まない相対パス）か。外を指す焼き込み画像は write_asset では書けない */
+const isUnderMd = (rel: string) => !/^[a-zA-Z]:|^[\\/]/.test(rel) && !rel.split(/[\\/]/).includes("..");
+
 /** 本文で参照されている保存待ち画像を書き出す。書き出した件数を返す */
 async function writePendingImages(tab: Tab, mdPath: string, text: string): Promise<number> {
   let count = 0;
   for (const [rel, img] of tab.pendingImages) {
-    if (!text.includes(`](${mdLink(rel)}`)) continue;
-    await invoke("write_asset", img.bytes, {
-      headers: { "x-md": encodeURIComponent(mdPath), "x-rel": encodeURIComponent(rel) },
-    });
+    if (!isReferenced(text, rel, img)) continue;
+    if (isUnderMd(rel)) {
+      await invoke("write_asset", img.bytes, {
+        headers: { "x-md": encodeURIComponent(mdPath), "x-rel": encodeURIComponent(rel) },
+      });
+    } else {
+      // 元画像の隣（../img/form.annotated.png など）に置く焼き込み画像
+      await invoke("write_binary", img.bytes, {
+        headers: { "x-path": encodeURIComponent(resolvePath(dirname(mdPath), rel)) },
+      });
+    }
     count++;
   }
   return count;
 }
 
+/** 「md の名前.assets」フォルダ直下の画像か（貼り付けた画像と、その焼き込み画像） */
+const isInAssetDir = (rel: string) => /^[^/\\]+\.assets\/[^/\\]+$/.test(rel);
+
 /**
- * まだ書き出していない貼り付け画像の置き場所を dir に付け替え、本文のリンクも書き換える。
- * 無題の文書を初めて保存したときや、画像を保存する前に名前を付けて保存したとき用。書き換えた本文を返す
+ * まだ書き出していない貼り付け画像の置き場所を dir に付け替え、本文のリンクと注釈のコメントの "src" も書き換える。
+ * 無題の文書を初めて保存したときや、画像を保存する前に名前を付けて保存したとき用。書き換えた本文を返す。
+ * 元画像の隣に置く焼き込み画像（.assets の外）は動かさない
  */
 function moveImagesTo(tab: Tab, dir: string): string {
   let text = textOf(tab);
   const moved = new Map<string, PendingImage>();
   let changed = false;
   for (const [rel, img] of tab.pendingImages) {
-    const next = `${dir}/${rel.slice(rel.lastIndexOf("/") + 1)}`;
+    const next = isInAssetDir(rel) ? `${dir}/${rel.slice(rel.lastIndexOf("/") + 1)}` : rel;
     if (next !== rel) {
-      text = text.split(`](${mdLink(rel)}`).join(`](${mdLink(next)}`);
+      const from = linkOfPending(rel, img);
+      const to = mdLink(next);
+      text = text.split(`](${from}`).join(`](${to}`);
+      text = text.split(`"src":${JSON.stringify(from)}`).join(`"src":${JSON.stringify(to)}`);
       changed = true;
-    }
-    moved.set(next, img);
+      moved.set(next, { ...img, link: to });
+    } else moved.set(next, img);
   }
   if (changed) {
     tab.pendingImages = moved;
@@ -793,6 +835,7 @@ $("banner-ignore").addEventListener("click", () => {
 $("btn-new").addEventListener("click", () => newFile());
 $("btn-open").addEventListener("click", () => openWithPrompt());
 $("btn-save").addEventListener("click", () => saveFile());
+$("btn-save-as").addEventListener("click", () => saveFile(true));
 $("btn-pdf").addEventListener("click", () => previewPdf());
 $("btn-settings").addEventListener("click", () => openSettings());
 $("btn-help").addEventListener("click", () => openHelp());
@@ -810,11 +853,15 @@ const annotator = setupAnnotator({
   canEdit: () => !state.updating,
   mdPath: () => active.path,
   readBinary: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_binary", { path })),
-  writePng: async (path, bytes) => {
-    await invoke("write_binary", bytes, { headers: { "x-path": encodeURIComponent(path) } });
-  },
   exists: (path) => invoke<boolean>("path_exists", { path }),
-  isPendingImage: (rel) => active.pendingImages.has(rel),
+  pendingBytes: (rel) => active.pendingImages.get(rel)?.bytes ?? null,
+  // 焼き込み画像は貼り付け画像と同じく保存待ちにし、MD を保存したときに書き出す（保存前でも blob URL で表示できる）
+  addPending: (rel, link, bytes) => {
+    const old = active.pendingImages.get(rel);
+    if (old) URL.revokeObjectURL(old.url);
+    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/png" }));
+    active.pendingImages.set(rel, { bytes, url, link });
+  },
   onApplied: () => state.mode === "preview" && setMode("split"),
 });
 
@@ -880,6 +927,7 @@ updateThemeButton();
 const settingsOverlay = $("settings");
 const setTheme = $<HTMLSelectElement>("set-theme");
 const activeLine = $<HTMLInputElement>("active-line");
+const followCursorIn = $<HTMLInputElement>("follow-cursor");
 const activeLineColor = $<HTMLInputElement>("active-line-color");
 const autoUpdate = $<HTMLInputElement>("auto-update");
 const keepDraft = $<HTMLInputElement>("keep-draft");
@@ -890,6 +938,7 @@ const setRecentCount = $<HTMLInputElement>("set-recent-count");
 function openSettings() {
   setTheme.value = getThemePref();
   activeLine.checked = isActiveLineEnabled();
+  followCursorIn.checked = isFollowCursorEnabled();
   activeLineColor.value = getActiveLineColor();
   autoUpdate.checked = isAutoCheckEnabled();
   keepDraft.checked = isKeepDraftEnabled();
@@ -910,6 +959,10 @@ settingsOverlay.addEventListener("click", (e) => e.target === settingsOverlay &&
 setTheme.addEventListener("change", async () => {
   await setThemePref(setTheme.value as ThemePref);
   updateThemeButton();
+});
+followCursorIn.addEventListener("change", () => {
+  setFollowCursorEnabled(followCursorIn.checked);
+  syncPreviewToEditor();
 });
 activeLine.addEventListener("change", () => {
   setActiveLineEnabled(activeLine.checked);
@@ -965,7 +1018,7 @@ interface Draft {
 /** 本文で参照されている、保存待ちの貼り付け画像があるか */
 const hasUnsavedImages = (tab: Tab) => {
   const text = textOf(tab);
-  return [...tab.pendingImages.keys()].some((rel) => text.includes(`](${mdLink(rel)}`));
+  return [...tab.pendingImages].some(([rel, img]) => isReferenced(text, rel, img));
 };
 
 async function beforeUpdate(): Promise<boolean> {
