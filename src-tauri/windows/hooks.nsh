@@ -37,10 +37,39 @@
   ${EndIf}
 !macroend
 
-; .md ファイルにアプリと別のアイコン（資料の形）を付ける（Issue #4）。
-; 標準のファイル関連付けはアイコンをアプリの exe に固定するので、関連付けの後で上書きする。
-; アイコンは bundle.resources で $INSTDIR に置き、アンインストール時は関連付けと一緒に消える
+; エクスプローラーの右クリックメニューに「MDプレビューで開く」を出す。
+; 既定のアプリ（関連付け）とは別の SystemFileAssociations に登録するので、
+; .md を VS Code など別のアプリに関連付けていても表示される。
+; Windows 11 では「その他のオプションを確認」（Shift+F10）の中に表示される。
+!define CONTEXT_MENU_KEY "MarkdownPreview.Open"
+
+!macro WriteContextMenu EXT
+  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\.${EXT}\shell\${CONTEXT_MENU_KEY}" "" "MDプレビューで開く"
+  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\.${EXT}\shell\${CONTEXT_MENU_KEY}" "Icon" '"$INSTDIR\${MAINBINARYNAME}.exe",0'
+  WriteRegStr SHCTX "Software\Classes\SystemFileAssociations\.${EXT}\shell\${CONTEXT_MENU_KEY}\command" "" '"$INSTDIR\${MAINBINARYNAME}.exe" "%1"'
+!macroend
+
+!macro DeleteContextMenu EXT
+  DeleteRegKey SHCTX "Software\Classes\SystemFileAssociations\.${EXT}\shell\${CONTEXT_MENU_KEY}"
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
+  ; .md ファイルにアプリと別のアイコン（資料の形）を付ける（Issue #4）。
+  ; 標準のファイル関連付けはアイコンをアプリの exe に固定するので、関連付けの後で上書きする。
+  ; アイコンは bundle.resources で $INSTDIR に置き、アンインストール時は関連付けと一緒に消える
   WriteRegStr SHCTX "Software\Classes\Markdown\DefaultIcon" "" "$INSTDIR\md-document.ico"
   !insertmacro UPDATEFILEASSOC
+
+  ; 右クリックメニュー（拡張子は tauri.conf.json の bundle.fileAssociations と揃える）
+  !insertmacro WriteContextMenu "md"
+  !insertmacro WriteContextMenu "markdown"
+  !insertmacro WriteContextMenu "mdown"
+  !insertmacro WriteContextMenu "mkd"
+!macroend
+
+!macro NSIS_HOOK_POSTUNINSTALL
+  !insertmacro DeleteContextMenu "md"
+  !insertmacro DeleteContextMenu "markdown"
+  !insertmacro DeleteContextMenu "mdown"
+  !insertmacro DeleteContextMenu "mkd"
 !macroend
