@@ -25,7 +25,8 @@ import {
   setActiveLineEnabled,
 } from "./prefs";
 import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft, setupUpdater } from "./updater";
-import { basename, dirname, hasScheme, isMarkdownPath, resolvePath } from "./paths";
+import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, normalizeInputPath, resolvePath } from "./paths";
+import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
 
 type Mode = "editor" | "split" | "preview";
 
@@ -64,6 +65,8 @@ interface Tab {
   editorScroll: number;
   /** 編集中に外部でファイルが変更された（表示時にバナーを出す） */
   externalChange: boolean;
+  /** お試しタブ（ファイルパネルのシングルクリックで開いた、使い回すタブ）。編集すると通常タブになる */
+  trial: boolean;
 }
 
 let nextTabId = 1;
@@ -324,6 +327,7 @@ function makeTab(path: string | null, text: string): Tab {
     previewScroll: 0,
     editorScroll: 0,
     externalChange: false,
+    trial: false,
   };
 }
 
@@ -344,6 +348,7 @@ function updateTitle() {
   void appWindow.setTitle(`${tabName(active)}${active.dirty ? " •" : ""} - Markdown Preview`);
   // 無題（まだ保存していない）ならパスがないのでコピーできない
   copyPathBtn.disabled = !active.path;
+  filePanel.setActive(active.path);
 }
 
 const copyPathBtn = $<HTMLButtonElement>("btn-copy-path");
@@ -365,11 +370,11 @@ function renderTabs() {
   tabBar.replaceChildren(
     ...tabs.map((tab) => {
       const el = document.createElement("div");
-      el.className = "tab";
+      el.className = tab.trial ? "tab trial" : "tab";
       el.setAttribute("role", "tab");
       el.setAttribute("aria-selected", String(tab === active));
       el.dataset.id = String(tab.id);
-      el.title = tab.path ?? "無題（未保存）";
+      el.title = tab.trial ? `${tab.path}（お試し: ダブルクリックで残す）` : (tab.path ?? "無題（未保存）");
       const name = document.createElement("span");
       name.className = "tab-name";
       name.textContent = tabName(tab);
@@ -405,6 +410,11 @@ tabBar.addEventListener("click", (e) => {
   if (!tab) return;
   if (target.closest(".tab-close")) void closeTab(tab);
   else activate(tab);
+});
+// お試しタブをダブルクリックしたら通常タブにする
+tabBar.addEventListener("dblclick", (e) => {
+  const tab = tabOf(e.target as Element);
+  if (tab?.trial) pinTab(tab);
 });
 // 中クリックで閉じる（自動スクロールが始まらないよう mousedown も止める）
 tabBar.addEventListener("mousedown", (e) => e.button === 1 && e.preventDefault());
@@ -446,6 +456,14 @@ function cycleTab(delta: number) {
 function setDirty(tab: Tab, dirty: boolean) {
   if (dirty === tab.dirty) return;
   tab.dirty = dirty;
+  // 編集したお試しタブは、別のファイルで置き換わらないよう通常タブにする
+  if (dirty) tab.trial = false;
+  renderTabs();
+}
+
+/** お試しタブを通常タブにする */
+function pinTab(tab: Tab) {
+  tab.trial = false;
   renderTabs();
 }
 
@@ -471,15 +489,20 @@ async function showError(err: unknown) {
 
 /**
  * ファイルをタブで開く。開いていればそのタブへ、今のタブが空の無題ならそのタブで、それ以外は新しいタブで開く。
+ * trial ならお試しタブで開く（お試しタブがあればその中身を置き換える）。trial でなければ通常タブにする。
  * 開けたら true。quiet なら開けなくてもエラーを出さない（前回のタブの復元で、消えたファイルを飛ばすため）
  */
-async function openInTab(path: string, quiet = false): Promise<boolean> {
+async function openInTab(path: string, quiet = false, trial = false): Promise<boolean> {
   if (state.updating) return false;
   const opened = () => tabs.find((t) => t.path && samePath(t.path, path));
-  if (opened()) {
-    activate(opened()!);
+  const showOpened = () => {
+    const tab = opened()!;
+    activate(tab);
+    // お試しタブで開いているファイルをダイアログやダブルクリックで開き直したら、通常タブにする
+    if (!trial && tab.trial) pinTab(tab);
     return true;
-  }
+  };
+  if (opened()) return showOpened();
   let text: string;
   try {
     text = await invoke<string>("read_file", { path });
@@ -489,24 +512,53 @@ async function openInTab(path: string, quiet = false): Promise<boolean> {
     if (!quiet) await showError(err);
     return false;
   }
-  if (opened()) {
-    activate(opened()!);
-    return true;
-  }
-  if (isBlank(active)) {
-    active.path = path;
-    active.savedText = text;
-    active.doc = editor.createState(text);
-    editor.setState(active.doc);
-    banner.hidden = true;
-    renderTabs();
-    void render();
-    previewPane.scrollTop = 0;
-  } else {
-    addTab(makeTab(path, text));
+  if (opened()) return showOpened();
+  const reuse = trial ? tabs.find((t) => t.trial) : undefined;
+  if (reuse) loadInto(reuse, path, text, trial);
+  else if (isBlank(active)) loadInto(active, path, text, trial);
+  else {
+    const tab = makeTab(path, text);
+    tab.trial = trial;
+    addTab(tab);
   }
   return true;
 }
+
+/** 未編集のタブ（空の無題・お試しタブ）にファイルの中身を読み込んで表示する */
+function loadInto(tab: Tab, path: string, text: string, trial: boolean) {
+  const oldPath = tab.path;
+  tab.path = path;
+  tab.savedText = text;
+  tab.doc = editor.createState(text);
+  tab.trial = trial;
+  tab.externalChange = false;
+  tab.previewScroll = 0;
+  tab.editorScroll = 0;
+  clearPendingImages(tab);
+  if (oldPath && !tabs.some((t) => t.path && samePath(t.path, oldPath))) {
+    void invoke("unwatch_file", { path: oldPath }).catch(() => {});
+  }
+  if (tab !== active) return activate(tab);
+  editor.setState(tab.doc);
+  banner.hidden = true;
+  renderTabs();
+  void render();
+  previewPane.scrollTop = 0;
+}
+
+// ファイルパネル（右側。作業フォルダの Markdown をツリーで出す）
+const filePanel = setupFilePanel({
+  // お試しタブで開いても、続けてキーボードで選べるようパネルのフォーカスを保つ
+  openTrial: async (path) => {
+    const focused = document.activeElement as HTMLElement | null;
+    await openInTab(path, false, true);
+    focused?.focus();
+  },
+  openPinned: (path) => openInTab(path),
+  // 前回開いたままならタブを作る前に呼ばれるので、まだ active がないことがある
+  activePath: () => active?.path ?? null,
+  onClose: () => (state.mode === "preview" ? previewPane.focus() : editor.view.focus()),
+});
 
 async function openWithPrompt() {
   if (state.updating) return;
@@ -518,6 +570,65 @@ async function openWithPrompt() {
   if (!picked) return;
   for (const path of Array.isArray(picked) ? picked : [picked]) await openInTab(path);
 }
+
+// ---------- パスで開く ----------
+// パスを入力・貼り付けして開く。フォルダなら作業フォルダにする（ファイルパネルを使うとき）
+
+const openPathOverlay = $("open-path");
+const openPathInput = $<HTMLInputElement>("open-path-input");
+const openPathError = $("open-path-error");
+const OPEN_PATH_KEY = "openPath.last";
+
+/** 直前に入力したパスを全選択で出す（そのまま貼り付けて上書きできる） */
+function openPathPrompt() {
+  if (state.updating) return;
+  openPathInput.value = localStorage.getItem(OPEN_PATH_KEY) ?? "";
+  openPathError.hidden = true;
+  openPathOverlay.hidden = false;
+  openPathInput.focus();
+  openPathInput.select();
+}
+
+function closeOpenPath() {
+  openPathOverlay.hidden = true;
+}
+
+/** 開けないときは入力欄を閉じずにエラーを出す（直してもう一度試せるように） */
+async function submitOpenPath() {
+  const path = normalizeInputPath(openPathInput.value);
+  if (!path) return;
+  localStorage.setItem(OPEN_PATH_KEY, path);
+  const fail = (msg: string) => {
+    openPathError.textContent = msg;
+    openPathError.hidden = false;
+    openPathInput.focus();
+  };
+  // 相対パスは基準が分かりにくく、別のファイルを開いてしまうので受け付けない
+  if (!isAbsolute(path)) {
+    return fail("C:\\ や \\\\server\\ から始まるパスを入力してください。");
+  }
+  if (await invoke<boolean>("is_dir", { path })) {
+    if (!isFilePanelEnabled()) return fail("フォルダは開けません（設定で「ファイルパネルを使う」をオンにすると、作業フォルダとして開けます）。");
+    closeOpenPath();
+    return filePanel.openFolder(path);
+  }
+  if (!isMarkdownPath(path) && !/\.txt$/i.test(path)) {
+    return fail("Markdown ファイル（.md / .markdown / .mdown / .mkd / .txt）のパスを入力してください。");
+  }
+  if (!(await openInTab(path, true))) return fail(`ファイルを開けませんでした（見つからないか、読み込めません）: ${path}`);
+  closeOpenPath();
+}
+
+openPathInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    void submitOpenPath();
+  }
+});
+openPathInput.addEventListener("input", () => (openPathError.hidden = true));
+// 入力欄の外（背景）をクリックしたら閉じる
+openPathOverlay.addEventListener("click", (e) => e.target === openPathOverlay && closeOpenPath());
+$("btn-open-path").addEventListener("click", () => openPathPrompt());
 
 /** ディスクから読み直す。force なら未保存の変更を確認せずに捨てる（バナーの「再読み込み」） */
 async function reloadTab(tab: Tab, force = false) {
@@ -718,6 +829,8 @@ const activeLine = $<HTMLInputElement>("active-line");
 const activeLineColor = $<HTMLInputElement>("active-line-color");
 const autoUpdate = $<HTMLInputElement>("auto-update");
 const keepDraft = $<HTMLInputElement>("keep-draft");
+const setFiles = $<HTMLInputElement>("set-files");
+const setRecentCount = $<HTMLInputElement>("set-recent-count");
 
 /** 設定画面を開く（開くたびに現在の値を読み直す） */
 function openSettings() {
@@ -726,6 +839,8 @@ function openSettings() {
   activeLineColor.value = getActiveLineColor();
   autoUpdate.checked = isAutoCheckEnabled();
   keepDraft.checked = isKeepDraftEnabled();
+  setFiles.checked = isFilePanelEnabled();
+  setRecentCount.value = String(getRecentCount());
   settingsOverlay.hidden = false;
   $("settings-close").focus();
 }
@@ -754,6 +869,17 @@ $("active-line-reset").addEventListener("click", () => {
   setActiveLineColor(null);
   activeLineColor.value = getActiveLineColor();
   applyActiveLineColor();
+});
+setFiles.addEventListener("change", () => filePanel.setEnabled(setFiles.checked));
+// 入力途中（空欄など）は反映せず、範囲外は上限・下限に丸めて入力欄にも戻す
+setRecentCount.addEventListener("change", () => {
+  const n = Number(setRecentCount.value);
+  if (setRecentCount.value === "" || !Number.isFinite(n)) {
+    setRecentCount.value = String(getRecentCount());
+    return;
+  }
+  filePanel.setRecentCount(Math.min(RECENT_COUNT_MAX, Math.max(0, n)));
+  setRecentCount.value = String(getRecentCount());
 });
 autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
 keepDraft.addEventListener("change", () => setKeepDraft(keepDraft.checked));
@@ -1000,11 +1126,15 @@ window.addEventListener(
     else if (mod && e.shiftKey && key === "d") run(() => builder.open());
     else if (mod && e.shiftKey && key === "c") run(() => copyPath());
     else if (!settingsOverlay.hidden && e.key === "Escape") run(() => closeSettings());
+    else if (!openPathOverlay.hidden && e.key === "Escape") run(() => closeOpenPath());
+    // Ctrl+O より先に判定する（Shift 付きも key は "o"）
+    else if (mod && e.shiftKey && key === "o") run(() => openPathPrompt());
     else if (!pdfOverlay.hidden && mod && key === "s") run(() => savePdf());
     else if (mod && key === "s") run(() => saveFile(e.shiftKey));
     else if (mod && key === "o") run(() => openWithPrompt());
     else if (mod && key === "n") run(() => newFile());
     else if (mod && key === "p") run(() => previewPdf());
+    else if (mod && key === "b" && isFilePanelEnabled()) run(() => filePanel.toggle());
     else if (e.key === "F1") run(() => openHelp());
     else if (mod && e.key === ",") run(() => openSettings());
     // JIS 配列では「+」が Shift+; なので ; も拡大として扱う
@@ -1033,12 +1163,24 @@ void getCurrentWebview().onDragDropEvent((e) => {
   else if (p.type === "leave") dropzone.hidden = true;
   else if (p.type === "drop") {
     dropzone.hidden = true;
-    // Markdown（とテキスト）以外は開かない。画像などをテキストとして開いて文字化けさせないため
-    const files = p.paths.filter((f) => isMarkdownPath(f) || /\.txt$/i.test(f));
-    if (files.length) void openDropped(files);
-    else if (p.paths.length) void message("Markdown ファイル（.md など）をドロップしてください。", { kind: "info" });
+    void onDrop(p.paths);
   }
 });
+
+/** ファイルはタブで開く。フォルダはファイルパネルの作業フォルダにする（ファイルパネルを使うときだけ） */
+async function onDrop(paths: string[]) {
+  // Markdown（とテキスト）以外は開かない。画像などをテキストとして開いて文字化けさせないため
+  const files = paths.filter((f) => isMarkdownPath(f) || /\.txt$/i.test(f));
+  if (files.length) return openDropped(files);
+  if (!paths.length) return;
+  if (isFilePanelEnabled()) {
+    for (const p of paths) {
+      if (await invoke<boolean>("is_dir", { path: p })) return filePanel.openFolder(p);
+    }
+    return void message("Markdown ファイル（.md など）かフォルダをドロップしてください。", { kind: "info" });
+  }
+  void message("Markdown ファイル（.md など）をドロップしてください。", { kind: "info" });
+}
 
 /** ドロップしたファイルをすべてタブで開き、すぐ編集できるよう分割表示にする */
 async function openDropped(files: string[]) {

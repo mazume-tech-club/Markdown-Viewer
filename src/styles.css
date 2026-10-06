@@ -136,9 +136,16 @@ button:hover { background: var(--btn-hover); }
 .banner.update { background: color-mix(in srgb, var(--accent) 14%, var(--bg)); }
 .banner .update-progress { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
 
-#main {
+/* 本体（エディタ・プレビュー）と右側のファイルパネル */
+#workspace {
   flex: 1;
   min-height: 0;
+  display: flex;
+  --files-width: 240px;
+}
+#main {
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: var(--split) 5px 1fr;
 }
@@ -179,6 +186,72 @@ button:hover { background: var(--btn-hover); }
   box-shadow: -8px 0 0 0 var(--active-line-bg), 8px 0 0 0 var(--active-line-bg);
   border-radius: 2px;
 }
+
+/* ファイルパネル */
+#files-divider { flex: none; width: 5px; cursor: col-resize; background: var(--border); }
+#files-divider:hover { background: var(--accent); }
+#files-divider[hidden], #files[hidden] { display: none; }
+#files {
+  flex: none;
+  width: var(--files-width);
+  display: flex;
+  flex-direction: column;
+  background: var(--toolbar);
+  user-select: none;
+}
+.files-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 4px 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.files-root { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.files-head button { padding: 2px 6px; }
+#files-tree { flex: 1; min-height: 0; overflow: auto; padding: 4px 0; outline: none; }
+#files-tree:empty { flex: none; padding: 0; }
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-right: 8px;
+  white-space: nowrap;
+  cursor: default;
+}
+.files-row:hover { background: var(--btn-hover); }
+.files-row.active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: inherit; font-weight: 600; }
+#files-tree:focus .files-row.cursor { outline: 1px solid var(--accent); outline-offset: -1px; }
+.files-twisty { flex: none; width: 12px; color: var(--muted); text-align: center; }
+.files-icon { flex: none; font-size: 12px; }
+.files-name { overflow: hidden; text-overflow: ellipsis; }
+.files-status { flex: 1; min-height: 0; overflow: auto; padding: 12px; color: var(--muted); }
+.files-status[hidden] { display: none; }
+.files-status p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.files-status button { border-color: var(--border); margin: 0 4px 4px 0; }
+/* 最近使ったファイル（パネルの下部に固定。ツリーだけがスクロールする） */
+.files-recent { flex: none; border-top: 1px solid var(--border); padding: 4px 0; }
+.files-recent[hidden] { display: none; }
+.files-recent h4 { margin: 2px 10px 4px; font-size: 11px; font-weight: normal; color: var(--muted); }
+.files-recent .files-row { padding-left: 10px; }
+.files-dir { flex: none; max-width: 45%; margin-left: auto; padding-left: 6px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: 11px; }
+.files-menu {
+  position: fixed;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgb(0 0 0 / 20%);
+}
+.files-menu[hidden] { display: none; }
+.files-menu button { text-align: left; border-radius: 4px; }
+#btn-files.active { background: var(--btn-hover); border-color: var(--border); }
+/* お試しタブ（別のファイルをシングルクリックすると置き換わる） */
+.tab.trial .tab-name { font-style: italic; }
 
 .empty-state {
   margin-top: 20vh;
@@ -252,6 +325,39 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 #pdf-frame { flex: 1; border: 0; width: 100%; background: #525659; }
 
+/* パスで開く（画面上部の中央に出す入力欄） */
+.quick-input {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 64px;
+  background: rgb(0 0 0 / 20%);
+}
+.quick-input[hidden] { display: none; }
+.quick-input-panel {
+  width: min(640px, calc(100vw - 32px));
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+}
+.quick-input input {
+  width: 100%;
+  font: 13px "Cascadia Code", Consolas, "BIZ UDGothic", monospace;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 6px 8px;
+  outline: none;
+}
+.quick-input-error { margin-top: 6px; color: var(--error); overflow-wrap: anywhere; }
+.quick-input-error[hidden] { display: none; }
+
 /* 設定 */
 .settings {
   position: fixed;
@@ -288,6 +394,15 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .settings .version { color: var(--muted); }
 .settings button { border-color: var(--border); }
 .settings select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+.settings input[type="number"] {
+  width: 64px;
   font: inherit;
   color: inherit;
   background: var(--bg);
@@ -422,9 +537,9 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 
 @media print {
   @page { margin: 15mm 12mm; }
-  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings { display: none !important; }
+  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings, #files, #files-divider, #files-menu, #open-path { display: none !important; }
   html, body { height: auto; overflow: visible; background: #fff; }
-  body, #main { display: block; }
+  body, #workspace, #main { display: block; }
   #preview-pane { overflow: visible; visibility: visible !important; }
   .markdown-body { max-width: none; padding: 0; zoom: 1 !important; }
   .diagram, .markdown-body pre, .markdown-body table, .markdown-body img { break-inside: avoid; }
