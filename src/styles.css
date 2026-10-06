@@ -253,6 +253,11 @@ button:hover { background: var(--btn-hover); }
 /* お試しタブ（別のファイルをシングルクリックすると置き換わる） */
 .tab.trial .tab-name { font-style: italic; }
 
+/* 注釈付きの画像（元画像の上に注釈の SVG を重ねる。SVG は画像と同じ箱に引き伸ばす） */
+.annotated { position: relative; display: inline-block; max-width: 100%; line-height: 0; vertical-align: top; }
+.annotated img { display: block; max-width: 100%; }
+.annotated svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+
 .empty-state {
   margin-top: 20vh;
   text-align: center;
@@ -535,14 +540,62 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 }
 .builder input:disabled { opacity: 0.4; }
 
+/* 注釈エディタ（外枠は図のビルダーと共通） */
+.annotator-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 280px;
+}
+.a-stage {
+  overflow: auto;
+  padding: 16px;
+  background: repeating-conic-gradient(color-mix(in srgb, var(--border) 45%, var(--bg)) 0 25%, var(--bg) 0 50%) 0 0 / 16px 16px;
+  border-right: 1px solid var(--border);
+}
+.a-canvas { position: relative; display: inline-block; line-height: 0; box-shadow: 0 2px 10px rgb(0 0 0 / 25%); }
+.a-img { display: block; max-width: 100%; user-select: none; }
+.a-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; touch-action: none; user-select: none; }
+.a-svg.a-drawing { cursor: crosshair; }
+.a-svg .a-item { cursor: move; }
+.a-svg.a-drawing .a-item { cursor: crosshair; }
+.a-handle { fill: #fff; stroke: var(--accent); stroke-width: 2px; vector-effect: non-scaling-stroke; cursor: grab; }
+.a-sel-box { fill: none; stroke: var(--accent); stroke-dasharray: 4 3; vector-effect: non-scaling-stroke; pointer-events: none; }
+.a-side { overflow: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.a-side h4 { margin: 4px 0 0; font-size: 12px; color: var(--muted); }
+.a-tools { align-self: flex-start; }
+.a-hint { margin: 0; min-height: 3em; }
+.a-props { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; }
+.a-props.a-none .a-row:not(:first-child) { display: none; }
+.a-row { display: flex; align-items: center; gap: 8px; }
+.a-col { display: flex; flex-direction: column; gap: 4px; }
+.a-row[hidden], .a-col[hidden], .a-props button[hidden] { display: none; }
+.a-props input[type="number"] { width: 72px; }
+.a-props input, .a-props textarea {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.a-props input[type="color"] { width: 36px; height: 24px; padding: 0; }
+.a-props textarea { resize: vertical; }
+.a-props .a-delete { align-self: flex-start; border-color: var(--border); }
+.a-list { margin: 0; padding: 0 0 0 1.6em; }
+.a-list li { display: flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: 4px; cursor: default; }
+.a-list li:hover { background: var(--btn-hover); }
+.a-list li.selected { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.a-list-del { margin-left: auto; padding: 0 6px; color: var(--muted); }
+
 @media print {
   @page { margin: 15mm 12mm; }
-  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings, #files, #files-divider, #files-menu, #open-path { display: none !important; }
+  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings, #files, #files-divider, #files-menu, #open-path, #preview-menu, #annotator { display: none !important; }
   html, body { height: auto; overflow: visible; background: #fff; }
   body, #workspace, #main { display: block; }
   #preview-pane { overflow: visible; visibility: visible !important; }
   .markdown-body { max-width: none; padding: 0; zoom: 1 !important; }
-  .diagram, .markdown-body pre, .markdown-body table, .markdown-body img { break-inside: avoid; }
+  .diagram, .markdown-body pre, .markdown-body table, .markdown-body img, .annotated { break-inside: avoid; }
   .markdown-body h1, .markdown-body h2, .markdown-body h3 { break-after: avoid; }
   .markdown-body .active-line { background-image: none; box-shadow: none; }
 }

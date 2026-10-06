@@ -33,7 +33,33 @@ export interface Editor {
   blockAtCursor(): CodeBlock | null;
   /** from〜to を置き換え、置き換えた末尾にカーソルを置く */
   replaceRange(from: number, to: number, text: string): void;
+  /** カーソル行の画像（![alt](src)）と、次の行の注釈のコメント。無ければ null */
+  imageAtCursor(): ImageRef | null;
+  /** 0 始まりの行・列にカーソルを置く */
+  setCursor(line: number, ch: number): void;
 }
+
+/** 画像の Markdown の位置（注釈の編集用） */
+export interface ImageRef {
+  /** ![ の位置 */
+  from: number;
+  /** ) の直後 */
+  to: number;
+  /** 画像の行の末尾 */
+  lineEnd: number;
+  /** 注釈のコメントの行の末尾（コメントが無ければ lineEnd） */
+  end: number;
+  alt: string;
+  /** リンクに書かれたままのパス（%20 などはそのまま） */
+  src: string;
+  /** 注釈のコメントの中身（JSON）。無ければ null */
+  annotate: string | null;
+  /** 同じ行で、この画像より後ろにも画像がある（注釈は段落の最後の画像に付くので編集できない） */
+  laterImage: boolean;
+}
+
+const IMAGE_RE = /!\[([^\]]*)\]\(\s*(<[^>]*>|[^\s)]+)(?:\s+"[^"]*")?\s*\)/g;
+const ANNOTATE_LINE = /^\s*<!--\s*annotate\s+(.*?)\s*-->\s*$/;
 
 export interface CodeBlock {
   from: number;
@@ -179,6 +205,35 @@ export function createEditor(
         scrollIntoView: true,
       });
       view.focus();
+    },
+    imageAtCursor() {
+      const doc = view.state.doc;
+      const head = view.state.selection.main.head;
+      const line = doc.lineAt(head);
+      const found = [...line.text.matchAll(IMAGE_RE)];
+      if (!found.length) return null;
+      // カーソルが画像の上にあればその画像、なければ行の最初の画像
+      const i = Math.max(0, found.findIndex((m) => head >= line.from + m.index && head <= line.from + m.index + m[0].length));
+      const m = found[i];
+      const from = line.from + m.index;
+      const next = line.number < doc.lines ? doc.line(line.number + 1) : null;
+      const comment = next ? ANNOTATE_LINE.exec(next.text) : null;
+      const laterImage = i < found.length - 1;
+      return {
+        from,
+        to: from + m[0].length,
+        lineEnd: line.to,
+        end: comment && !laterImage ? next!.to : line.to,
+        alt: m[1],
+        src: m[2].replace(/^<(.*)>$/, "$1"),
+        annotate: comment && !laterImage ? comment[1] : null,
+        laterImage,
+      };
+    },
+    setCursor(line, ch) {
+      const doc = view.state.doc;
+      const l = doc.line(Math.max(1, Math.min(line + 1, doc.lines)));
+      view.dispatch({ selection: { anchor: Math.min(l.from + ch, l.to) }, scrollIntoView: true });
     },
     cursorOffset() {
       const coords = view.coordsAtPos(view.state.selection.main.head);
