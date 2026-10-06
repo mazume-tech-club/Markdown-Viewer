@@ -65,6 +65,22 @@ C4Context
   UpdateLayoutConfig($c4ShapeInRow="2", $c4BoundaryInRow="1")
 ```
 
+## C4 コンテナ図（Graphviz）
+
+```c4
+title Markdown Preview のコンテナ
+Person(user, "ユーザー", "Markdown を書く人")
+System_Boundary(app, "Markdown Preview") {
+  Container(ui, "画面", "TypeScript", "エディタとプレビュー")
+  Container(core, "コア", "Rust / Tauri", "ファイル入出力と変更監視")
+}
+System_Ext(editor, "外部エディタ", "VS Code など")
+Rel(user, ui, "書く・見る")
+Rel_R(ui, core, "呼び出す", "IPC")
+Rel_R(user, editor, "編集する")
+Rel(editor, core, "保存を検知", "ファイル監視")
+```
+
 ## Graphviz
 
 ```dot

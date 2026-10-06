@@ -10,6 +10,7 @@ export const DIAGRAM_KINDS: Record<string, string> = {
   mermaid: "mermaid",
   dot: "graphviz",
   graphviz: "graphviz",
+  c4: "c4",
   wavedrom: "wavedrom",
 };
 

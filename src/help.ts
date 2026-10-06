@@ -92,16 +92,24 @@ function build() {
                 data-search="${esc(`${i.title}\n${i.note}\n${i.code}`.toLowerCase())}">
               <header>
                 <h3>${esc(i.title)}</h3>
-                <div class="actions">
+                ${
+                  i.code
+                    ? `<div class="actions">
                   <button data-act="copy" data-id="${i.id}" title="例をクリップボードにコピー">コピー</button>
                   <button data-act="insert" data-id="${i.id}" title="メインウィンドウのカーソル位置に挿入">エディタに挿入</button>
-                </div>
+                </div>`
+                    : ""
+                }
               </header>
               ${i.note ? `<div class="note markdown-body">${renderMarkdown(i.note)}</div>` : ""}
-              <div class="pair">
+              ${
+                i.code
+                  ? `<div class="pair">
                 <pre class="src"><code class="hljs">${hljs.highlight(i.code, { language: "markdown" }).value}</code></pre>
                 <div class="result markdown-body">${renderMarkdown(i.code)}</div>
-              </div>
+              </div>`
+                  : ""
+              }
             </article>`,
           )
           .join("")}

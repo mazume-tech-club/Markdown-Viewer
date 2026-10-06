@@ -1,5 +1,11 @@
 # Markdown 基本 {#markdown}
 
+## 使用技術・書き方の調べ方
+[markdown-it](https://github.com/markdown-it/markdown-it) 15（CommonMark 準拠）で HTML に変換している。表・取り消し線に加え、脚注（markdown-it-footnote）とタスクリスト（markdown-it-task-lists）に対応。コードブロックの色分けは [highlight.js](https://highlightjs.org/) 11。
+- 基本の書き方: [CommonMark のヘルプ](https://commonmark.org/help/)
+- 表など GitHub 風の書き方: [GitHub Flavored Markdown](https://github.github.com/gfm/)
+- 色分けできる言語名: [highlight.js の対応言語](https://highlightjs.readthedocs.io/en/latest/supported-languages.html)
+
 ## 見出し
 行頭に `#` を 1〜6 個。`#` の後ろには半角スペースが必要。
 ~~~~example
@@ -126,6 +132,11 @@ def hello(name: str) -> str:
 ~~~~
 
 # Mermaid {#mermaid}
+
+## 使用技術・書き方の調べ方
+```` ```mermaid ```` で囲んだ部分を [Mermaid](https://mermaid.js.org/) 12 で描画している（アプリに同梱。オフラインで動く）。
+- 図の種類ごとの書き方: [Mermaid の構文リファレンス](https://mermaid.js.org/intro/syntax-reference.html)
+- ブラウザで書いて試す: [Mermaid Live Editor](https://mermaid.live/)（外部サイトに図の内容が送られるので、社外秘の図は貼らない）
 
 ## フローチャートの基本
 ```` ```mermaid ```` で囲む。向きは `TD`（上→下）/ `LR`（左→右）/ `BT` / `RL`。
@@ -369,6 +380,12 @@ quadrantChart
 
 # C4 モデル（Mermaid） {#c4}
 
+## 使用技術・書き方の調べ方
+Mermaid 12 の C4 図（```` ```mermaid ```` の中で `C4Context` などから書き始める）。
+- 書き方: [Mermaid の C4 図](https://mermaid.js.org/syntax/c4.html)（Mermaid 側でも試験的な機能という扱い）
+- C4 モデルの考え方: [c4model.com](https://c4model.com/)
+- Mermaid の C4 は線の経路や配置を指定できない。線を箱に重ねたくないときは [C4 モデル（Graphviz）](#c4-graphviz) を使う
+
 ## システムコンテキスト図
 `Person` 利用者、`System` 対象システム、`System_Ext` 外部システム、`Rel(元, 先, "説明", "技術")` 関係。
 ~~~~example
@@ -449,6 +466,13 @@ C4Context
 
 # Graphviz {#graphviz}
 
+## 使用技術・書き方の調べ方
+```` ```dot ```` / ```` ```graphviz ```` で囲んだ部分を [Graphviz](https://graphviz.org/) で描画している。Graphviz を WebAssembly にした [@viz-js/viz](https://github.com/mdaines/viz-js) 3 をアプリに同梱しているので、オフラインで動く。
+- 書き方（DOT 言語）: [DOT Language](https://graphviz.org/doc/info/lang.html)
+- 色・線・間隔などの属性: [Attributes](https://graphviz.org/doc/info/attrs.html)
+- ノードの形: [Node Shapes](https://graphviz.org/doc/info/shapes.html)
+- 作例: [Gallery](https://graphviz.org/gallery/)
+
 ## 有向グラフの基本
 ```` ```dot ```` または ```` ```graphviz ```` で囲む。`rankdir=LR` で左→右。
 ~~~~example
@@ -513,7 +537,111 @@ digraph G {
 ```
 ~~~~
 
+# C4 モデル（Graphviz） {#c4-graphviz}
+
+## 使用技術・書き方の調べ方
+```` ```c4 ```` で囲むと、C4-PlantUML / Mermaid と同じ書き方の C4 図を、このアプリが Graphviz の DOT に変換して描く。Mermaid の C4 と違い、線は箱を避けて通り、`Rel_R` や `Lay_D` で配置を指定できる。Mermaid の C4 のソースは、```` ```mermaid ```` を ```` ```c4 ```` に変えるだけで描ける（`UpdateRelStyle` / `UpdateLayoutConfig` は無視される）。
+- 書き方の元: [C4-PlantUML](https://github.com/plantuml-stdlib/C4-PlantUML)（このアプリが対応しているのは下の一覧だけ）
+- C4 モデルの考え方: [c4model.com](https://c4model.com/)
+- `dot:` で指定する属性: [Graphviz の属性一覧](https://graphviz.org/doc/info/attrs.html)
+- 要素: `Person` `Person_Ext` `System` `System_Ext` `SystemDb` `SystemDb_Ext` `Container` `Container_Ext` `ContainerDb` `ContainerDb_Ext` `Component` `Component_Ext` `ComponentDb` `ComponentDb_Ext`
+- 囲み: `Boundary` `System_Boundary` `Container_Boundary` `Enterprise_Boundary`（`{` `}` で囲む。入れ子可）
+- 関係: `Rel` `Rel_D` `Rel_U` `Rel_R` `Rel_L` `BiRel`（`BiRel_D` なども可）
+- 配置だけ: `Lay_D` `Lay_U` `Lay_R` `Lay_L`
+- 全体: `title` `LAYOUT_TOP_DOWN()` `LAYOUT_LEFT_RIGHT()` `UpdateElementStyle` `dot:`
+- 文字列の中の `\n` で改行できる。要素の説明は長いと自動で折り返す
+
+## コンテキスト図
+`Person(id, "名前", "説明")`、`System(id, "名前", "説明")`、`Rel(元, 先, "説明", "技術")`。
+~~~~example
+```c4
+title 受注システムのコンテキスト
+Person(customer, "顧客", "商品を注文する")
+System(shop, "受注システム", "注文を受け付けて在庫を引き当てる")
+System_Ext(pay, "決済サービス", "クレジット決済")
+Rel(customer, shop, "注文する")
+Rel(shop, pay, "決済を依頼", "HTTPS")
+```
+~~~~
+
+## コンテナ図（囲み）
+`System_Boundary(id, "名前") { … }` で囲む。`Container(id, "名前", "技術", "説明")`、`ContainerDb` は円柱になる。
+~~~~example
+```c4
+title 受注システムのコンテナ
+Person(customer, "顧客")
+System_Boundary(b, "受注システム") {
+  Container(web, "Web アプリ", "TypeScript", "画面を提供")
+  Container(api, "API", "Rust", "業務ロジック")
+  ContainerDb(db, "DB", "PostgreSQL", "注文データ")
+}
+Rel(customer, web, "使う", "HTTPS")
+Rel(web, api, "呼び出す", "JSON")
+Rel(api, db, "読み書き", "SQL")
+```
+~~~~
+
+## 配置を決める（Rel_R / Lay_D）
+`Rel_R(a, b)` は b を a の右に、`Rel_L` は左、`Rel_U` は上、`Rel_D` は下に置く。`Lay_*` は線を引かずに位置だけ決める。囲み（Boundary）の id を `Rel` に書くと、線は枠で止まる。
+~~~~example
+```c4
+Person(user, "利用者")
+Container_Boundary(mon, "稼働モニタ") {
+  Container(spa, "SPA", "TypeScript")
+  Container(api, "API", "Rust")
+}
+System_Ext(mail, "メール")
+Rel(user, spa, "見る")
+Rel_R(spa, api, "呼ぶ")
+Rel_R(api, mail, "通知")
+Lay_D(user, mon)
+```
+~~~~
+
+## 横向きにする
+`LAYOUT_LEFT_RIGHT()` で左→右に並べる（このとき `Rel_D` / `Rel_U` が同じ列での上下になる）。
+~~~~example
+```c4
+LAYOUT_LEFT_RIGHT()
+Person(u, "ユーザー")
+System(app, "アプリ", "1行目\n2行目")
+SystemDb_Ext(db, "外部DB")
+Rel(u, app, "使う")
+Rel(app, db, "保存")
+```
+~~~~
+
+## 線を直角にする・間隔を広げる（dot:）
+`dot:` の後ろは DOT の文としてそのまま入る。`splines=ortho` で直角の線、`nodesep` / `ranksep` で横・縦の間隔（インチ）。直角の線ではラベルが線から離れたり消えたりすることがあるので、ラベルが多い図は `splines=polyline`（折れ線）が見やすい。
+~~~~example
+```c4
+dot: splines=ortho
+dot: nodesep=1.0
+Container(gw, "Gateway", "nginx")
+Container(a, "注文", "Go")
+Container(b, "在庫", "Go")
+Container(c, "配送", "Go")
+Rel(gw, a)
+Rel(gw, b)
+Rel(gw, c)
+```
+~~~~
+
+## 要素の色を変える
+~~~~example
+```c4
+System(a, "通常のシステム")
+System(b, "注目するシステム")
+UpdateElementStyle(b, $bgColor="#d1242f", $borderColor="#82071e")
+Rel_R(a, b, "連携")
+```
+~~~~
+
 # WaveDrom {#wavedrom}
+
+## 使用技術・書き方の調べ方
+```` ```wavedrom ```` で囲んだ部分を [WaveDrom](https://wavedrom.com/) 3 で描画している。中身は JSON だが、このアプリでは JSON5（キーの引用符省略・末尾のカンマ・コメント可）で書ける。
+- 書き方: [WaveDrom Tutorial](https://wavedrom.com/tutorial.html)
 
 ## 信号の基本
 ```` ```wavedrom ```` で囲み JSON（JSON5）で書く。1文字が1周期。

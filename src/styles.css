@@ -162,6 +162,7 @@ button:hover { background: var(--btn-hover); }
 /* graphviz / wavedrom は白背景前提の配色なので、ダークでは紙のように見せる */
 @media screen and (prefers-color-scheme: dark) {
   .diagram.done[data-kind="graphviz"],
+  .diagram.done[data-kind="c4"],
   .diagram.done[data-kind="wavedrom"] {
     background: #fff;
     border-radius: 6px;
