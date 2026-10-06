@@ -35,3 +35,13 @@ export function hasScheme(href: string): boolean {
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|mdown|mkd)$/i.test(path);
 }
+
+/**
+ * 入力・貼り付けされたパスを整える。前後の空白と引用符（エクスプローラーの「パスのコピー」が付ける）を外し、
+ * / 区切りを \ にする
+ */
+export function normalizeInputPath(input: string): string {
+  let s = input.trim();
+  if (s.length >= 2 && s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1).trim();
+  return s.replace(/\//g, "\\");
+}

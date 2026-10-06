@@ -9,6 +9,7 @@
     <header id="toolbar">
       <button id="btn-new" title="新規 (Ctrl+N)">新規</button>
       <button id="btn-open" title="開く (Ctrl+O)">開く</button>
+      <button id="btn-open-path" title="パスを入力・貼り付けして開く (Ctrl+Shift+O)">パスで開く</button>
       <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
       <button id="btn-copy-path" title="開いているファイルのパスをコピー (Ctrl+Shift+C)">パスをコピー</button>
       <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
@@ -17,6 +18,7 @@
       <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
       <button id="btn-theme" title="テーマ（自動 / ライト / ダーク）">自動</button>
       <span class="spacer"></span>
+      <button id="btn-files" title="ファイルパネル (Ctrl+B)" hidden>ファイル</button>
       <button id="zoom-label" class="zoom-label" title="ズーム（Ctrl+ホイール / Ctrl+＋− / クリックで 100%）">100%</button>
       <div class="segmented" role="group" aria-label="表示モード">
         <button data-mode="editor" title="エディタのみ (Ctrl+1)">編集</button>
@@ -38,13 +40,33 @@
       <button id="update-notes">変更内容</button>
       <button id="update-later">後で</button>
     </div>
-    <main id="main" data-mode="preview">
-      <section id="editor-pane"></section>
-      <div id="divider" role="separator" aria-orientation="vertical"></div>
-      <section id="preview-pane">
-        <article id="preview" class="markdown-body"></article>
-      </section>
-    </main>
+    <div id="workspace">
+      <main id="main" data-mode="preview">
+        <section id="editor-pane"></section>
+        <div id="divider" role="separator" aria-orientation="vertical"></div>
+        <section id="preview-pane">
+          <article id="preview" class="markdown-body"></article>
+        </section>
+      </main>
+      <div id="files-divider" role="separator" aria-orientation="vertical" hidden></div>
+      <aside id="files" aria-label="ファイルパネル" hidden>
+        <div class="files-head">
+          <span id="files-root" class="files-root"></span>
+          <button id="files-pick" title="作業フォルダを選ぶ…">選ぶ…</button>
+          <button id="files-refresh" title="最新の状態に更新">⟳</button>
+        </div>
+        <div id="files-tree" role="tree" aria-label="作業フォルダ" tabindex="0"></div>
+        <div id="files-status" class="files-status" hidden></div>
+        <section id="files-recent" class="files-recent" aria-labelledby="files-recent-title" hidden>
+          <h4 id="files-recent-title">最近使ったファイル</h4>
+          <div id="files-recent-list" role="list"></div>
+        </section>
+      </aside>
+    </div>
+    <div id="files-menu" class="files-menu" role="menu" hidden>
+      <button data-action="copy" role="menuitem">パスをコピー</button>
+      <button data-action="reveal" role="menuitem">エクスプローラーで表示</button>
+    </div>
     <div id="pdf-preview" class="pdf-preview" hidden>
       <div class="pdf-bar">
         <strong>PDF プレビュー</strong>
@@ -70,6 +92,11 @@
               <option value="dark">ダーク</option>
             </select>
           </label>
+          <label class="settings-row" title="オフにすると、ツールバーのボタンと Ctrl+B も使えなくなります"><input id="set-files" type="checkbox" /> ファイルパネルを使う</label>
+          <label class="settings-row" title="ファイルパネルの下部に出す件数。0 にすると一覧を出しません">
+            <span class="grow">最近使ったフォルダの表示件数</span>
+            <input id="set-recent-count" type="number" min="0" max="20" step="1" />
+          </label>
         </section>
         <section class="settings-section">
           <h3>編集</h3>
@@ -88,6 +115,12 @@
           <label class="settings-row"><input id="auto-update" type="checkbox" /> 起動時に自動で更新を確認</label>
           <label class="settings-row" title="オフにすると、更新前に未保存の変更を破棄するか確認します"><input id="keep-draft" type="checkbox" /> 更新時、未保存の変更を再起動後に復元</label>
         </section>
+      </div>
+    </div>
+    <div id="open-path" class="quick-input" hidden>
+      <div class="quick-input-panel" role="dialog" aria-label="パスで開く">
+        <input id="open-path-input" type="text" spellcheck="false" autocomplete="off" placeholder="ファイルかフォルダのパス（Enter で開く / Esc で閉じる）" />
+        <div id="open-path-error" class="quick-input-error" hidden></div>
       </div>
     </div>
     <div id="dropzone" hidden><div>ここにドロップして開く</div></div>

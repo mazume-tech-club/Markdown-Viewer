@@ -23,6 +23,110 @@ struct WatchState(Mutex<HashMap<String, Debouncer<RecommendedWatcher>>>);
 #[derive(Default)]
 struct PdfPreview(Mutex<Option<PathBuf>>);
 
+/// ファイルパネルの作業フォルダの監視（パネルを開いている間だけ）
+#[derive(Default)]
+struct FolderWatch(Mutex<Option<Debouncer<RecommendedWatcher>>>);
+
+/// ファイルパネルに出すファイルの拡張子（「開く」ダイアログと同じ）
+const PANEL_EXTENSIONS: [&str; 5] = ["md", "markdown", "mdown", "mkd", "txt"];
+
+/// ファイルパネルに出さないフォルダ（. で始まるもの・node_modules）
+fn is_hidden_dir(name: &str) -> bool {
+    name.starts_with('.') || name.eq_ignore_ascii_case("node_modules")
+}
+
+fn is_panel_file(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| PANEL_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// root 以下の path が、出さないフォルダの中（またはそのもの）か
+fn in_hidden_dir(root: &Path, path: &Path) -> bool {
+    path.strip_prefix(root).is_ok_and(|rel| {
+        rel.components()
+            .any(|c| is_hidden_dir(&c.as_os_str().to_string_lossy()))
+    })
+}
+
+#[derive(serde::Serialize)]
+struct DirEntry {
+    name: String,
+    path: String,
+    dir: bool,
+}
+
+/// フォルダの中身を返す（ファイルパネル用）。フォルダが先、それぞれ名前順
+#[tauri::command]
+fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
+    let mut entries: Vec<DirEntry> = std::fs::read_dir(&path)
+        .map_err(|e| format!("{path}: {e}"))?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            let full = e.path();
+            // シンボリックリンク・ジャンクションは指す先で判断する
+            let dir = full.is_dir();
+            let shown = if dir { !is_hidden_dir(&name) } else { is_panel_file(&name) };
+            shown.then(|| DirEntry { name, path: full.to_string_lossy().into_owned(), dir })
+        })
+        .collect();
+    entries.sort_by(|a, b| {
+        b.dir
+            .cmp(&a.dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    Ok(entries)
+}
+
+#[tauri::command]
+fn is_dir(path: String) -> bool {
+    Path::new(&path).is_dir()
+}
+
+/// 作業フォルダを監視し、中身が変わったフォルダの一覧を `folder-changed` で通知する。
+/// 出さないフォルダ（.git・node_modules など）の中の変化は無視する
+#[tauri::command]
+fn watch_folder(app: AppHandle, state: State<FolderWatch>, path: String) -> Result<(), String> {
+    let root = PathBuf::from(&path);
+    let watched_root = root.clone();
+    let mut debouncer = new_debouncer(
+        Duration::from_millis(300),
+        move |res: DebounceEventResult| {
+            let Ok(events) = res else { return };
+            let mut dirs: Vec<String> = Vec::new();
+            for e in &events {
+                if in_hidden_dir(&watched_root, &e.path) {
+                    continue;
+                }
+                if let Some(parent) = e.path.parent() {
+                    let p = parent.to_string_lossy().into_owned();
+                    if !dirs.contains(&p) {
+                        dirs.push(p);
+                    }
+                }
+            }
+            if !dirs.is_empty() {
+                let _ = app.emit("folder-changed", dirs);
+            }
+        },
+    )
+    .map_err(|e| e.to_string())?;
+    debouncer
+        .watcher()
+        .watch(&root, RecursiveMode::Recursive)
+        .map_err(|e| format!("{path}: {e}"))?;
+    // 前の作業フォルダの監視は drop されて止まる
+    *state.0.lock().unwrap() = Some(debouncer);
+    Ok(())
+}
+
+#[tauri::command]
+fn unwatch_folder(state: State<FolderWatch>) {
+    state.0.lock().unwrap().take();
+}
+
 /// 引数列から最初のファイルパスを取り出し、cwd 基準の絶対パスにする
 fn file_arg(args: &[String], cwd: &Path) -> Option<String> {
     args.iter().skip(1).find(|a| !a.starts_with('-')).map(|a| {
@@ -370,12 +474,17 @@ pub fn run() {
         .manage(LaunchFile(Mutex::new(file_arg(&args, &cwd))))
         .manage(WatchState::default())
         .manage(PdfPreview::default())
+        .manage(FolderWatch::default())
         .invoke_handler(tauri::generate_handler![
             read_file,
             write_file,
             initial_file,
             watch_file,
             unwatch_file,
+            list_dir,
+            is_dir,
+            watch_folder,
+            unwatch_folder,
             write_asset,
             preview_pdf,
             save_preview_pdf,
@@ -412,6 +521,42 @@ mod tests {
         assert!(asset_target(md, "../x.png").is_err());
         assert!(asset_target(md, r"C:\x.png").is_err());
         assert!(asset_target(md, "").is_err());
+    }
+
+    #[test]
+    fn panel_shows_markdown_and_skips_hidden_dirs() {
+        assert!(is_panel_file("a.md"));
+        assert!(is_panel_file("設計.MARKDOWN"));
+        assert!(is_panel_file("memo.txt"));
+        assert!(!is_panel_file("image.png"));
+        assert!(!is_panel_file("README"));
+        assert!(is_hidden_dir(".git"));
+        assert!(is_hidden_dir("node_modules"));
+        assert!(!is_hidden_dir("docs"));
+
+        let root = Path::new(r"C:\work");
+        assert!(in_hidden_dir(root, Path::new(r"C:\work\.git\index")));
+        assert!(in_hidden_dir(root, Path::new(r"C:\work\web\node_modules\x\a.md")));
+        assert!(!in_hidden_dir(root, Path::new(r"C:\work\docs\a.md")));
+    }
+
+    #[test]
+    fn list_dir_filters_and_sorts() {
+        let dir = std::env::temp_dir().join(format!("mp-list-dir-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for d in ["b-dir", "A-dir", ".git", "node_modules"] {
+            std::fs::create_dir_all(dir.join(d)).unwrap();
+        }
+        for f in ["z.md", "B.txt", "a.MD", "pic.png"] {
+            std::fs::write(dir.join(f), "").unwrap();
+        }
+        let names: Vec<String> = list_dir(dir.to_string_lossy().into_owned())
+            .unwrap()
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert_eq!(names, ["A-dir", "b-dir", "a.MD", "B.txt", "z.md"]);
     }
 
     #[test]
