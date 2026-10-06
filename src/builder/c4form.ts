@@ -4,6 +4,7 @@ import {
   BOUNDARY_TYPES,
   ELEMENT_TECHN,
   emptyModel,
+  isFreeLayout,
   parseC4,
   writeC4,
   type C4Model,
@@ -64,6 +65,16 @@ interface Row {
 type Selection = { type: "rel"; index: number } | { type: "row"; key: number } | null;
 
 const isBoundary = (macro: string) => macro in BOUNDARY_TYPES;
+
+/** ドラッグ中もポインタを受け取り続ける（ポインタが既に離れているなどで失敗しても、ドラッグ自体は続ける） */
+function capture(target: Element, pointerId: number, on: boolean) {
+  try {
+    if (on) target.setPointerCapture(pointerId);
+    else target.releasePointerCapture(pointerId);
+  } catch {
+    // 何もしない
+  }
+}
 const ID_RE = /^\w+$/;
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLElementTagNameMap[K]> = {}, ...children: (Node | string)[]) {
@@ -84,6 +95,10 @@ export function createC4Form(): DiagramForm {
   let changed: () => void = () => {};
   let formEl: HTMLElement;
   let selectEl: HTMLElement;
+  let barEl: HTMLElement;
+  let previewEl: HTMLElement;
+  /** プレビューでのドラッグの意味: 箱を動かす / 箱から箱へ線を引く */
+  let tool: "move" | "line" = "move";
 
   // ---------- データの変換 ----------
 
@@ -154,6 +169,7 @@ export function createC4Form(): DiagramForm {
   function rebuild() {
     renderForm();
     renderSelection();
+    renderBar();
     changed();
   }
 
@@ -165,12 +181,17 @@ export function createC4Form(): DiagramForm {
     }
     for (const s of meta.styles) if (s.id === from) s.id = to;
     for (const r of rows) if (r.parent === from) r.parent = to;
+    if (meta.positions[from]) {
+      meta.positions[to] = meta.positions[from];
+      delete meta.positions[from];
+    }
   }
 
   function removeRow(row: Row) {
     rows = rows.filter((r) => r !== row);
     rels = rels.filter((r) => r.from !== row.id && r.to !== row.id);
     meta.styles = meta.styles.filter((s) => s.id !== row.id);
+    delete meta.positions[row.id];
     for (const r of rows) if (r.parent === row.id) r.parent = row.parent;
     selected = null;
     rebuild();
@@ -273,6 +294,16 @@ export function createC4Form(): DiagramForm {
     header.value = meta.header ?? "";
     header.addEventListener("change", () => ((meta.header = header.value || null), touch()));
     grid.append(el("label", { title: "Mermaid に書き出すときの図の種類" }, "図の種類", header));
+    const layoutSel = el("select");
+    layoutSel.append(
+      el("option", { value: "auto", textContent: "自動（向きで指定）" }),
+      el("option", { value: "free", textContent: "自由（ドラッグした位置）" }),
+    );
+    layoutSel.value = isFreeLayout(meta) ? "free" : "auto";
+    layoutSel.addEventListener("change", () => setFreeLayout(layoutSel.value === "free"));
+    grid.append(
+      el("label", { title: "自由: プレビューで箱をドラッグした位置に置き、線は自動で引く（```c4 のみ）" }, "配置（c4）", layoutSel),
+    );
     const lr = el("input", { type: "checkbox", checked: meta.layout === "LR" });
     lr.addEventListener("change", () => ((meta.layout = lr.checked ? "LR" : "TB"), touch()));
     grid.append(el("label", { className: "b-check", title: "左→右に並べる（```c4 のみ）" }, lr, "横向き（c4）"));
@@ -293,7 +324,7 @@ export function createC4Form(): DiagramForm {
       el(
         "thead",
         {},
-        el("tr", {}, ...["種類", "id", "名前", "技術", "説明", "入れる囲み", ""].map((h) => el("th", { textContent: h }))),
+        el("tr", {}, ...["", "種類", "id", "名前", "技術", "説明", "入れる囲み", ""].map((h) => el("th", { textContent: h }))),
       ),
     );
     const tbody = el("tbody");
@@ -326,7 +357,10 @@ export function createC4Form(): DiagramForm {
       up.addEventListener("click", () => moveRow(row, -1));
       down.addEventListener("click", () => moveRow(row, 1));
       del.addEventListener("click", () => removeRow(row));
+      const grip = el("span", { className: "b-grip", textContent: "⠿", title: "ドラッグで並べ替え（囲みの行の真ん中に落とすと、その囲みに入れる）" });
+      grip.addEventListener("pointerdown", (e) => startRowDrag(e, row, tr));
       tr.append(
+        el("td", {}, grip),
         el("td", {}, kindSelect(row.macro, (v) => ((row.macro = v), rebuild()))),
         el("td", {}, id),
         el("td", {}, textInput(row.label, (v) => ((row.label = v), touch()))),
@@ -428,7 +462,7 @@ export function createC4Form(): DiagramForm {
     rows.splice(at, 0, row);
     selected = { type: "row", key: row.key };
     rebuild();
-    formEl.querySelector<HTMLInputElement>(`tr[data-key="${row.key}"] td:nth-child(3) input`)?.select();
+    formEl.querySelector<HTMLInputElement>(`tr[data-key="${row.key}"] td:nth-child(4) input`)?.select();
   }
 
   // ---------- 選択（表とプレビュー） ----------
@@ -447,8 +481,6 @@ export function createC4Form(): DiagramForm {
     renderSelection();
     markPreview();
   }
-
-  let previewEl: HTMLElement | null = null;
 
   /** プレビュー上で、選んでいる線・要素を強調する（```c4 のみ） */
   function markPreview() {
@@ -516,6 +548,310 @@ export function createC4Form(): DiagramForm {
     );
   }
 
+  // ---------- プレビューでのドラッグ（```c4 のみ） ----------
+  // 移動: 自動配置なら、別の箱の上下左右に落とすと向き（Rel_* / Lay_*）に変換する。
+  //       自由配置なら、落とした位置に固定する（Pos）。囲みを動かすと中の要素も一緒に動く。
+  // 線を引く: 箱から箱へドラッグすると関係を追加する。
+
+  /** プレビューの図（Graphviz の SVG）のグラフ部分 */
+  const graphOf = () => previewEl.querySelector<SVGGElement>("svg g.graph");
+
+  /** 箱（g.node）の id と、グラフ座標での中心 */
+  function nodeCenter(g: SVGGElement) {
+    const b = g.getBBox();
+    return { id: g.querySelector("title")?.textContent ?? "", x: b.x + b.width / 2, y: b.y + b.height / 2 };
+  }
+
+  const nodeById = (id: string) =>
+    [...previewEl.querySelectorAll<SVGGElement>("g.node")].find((g) => g.querySelector("title")?.textContent === id);
+
+  /**
+   * 今の図での要素の位置（Pos の座標。y は上向き）。位置を決めていない要素は、表示されている位置から求める。
+   * neato は図全体をずらして出力することがあるので、位置を決めた要素とのずれで補正する
+   */
+  function positionOf(id: string): { x: number; y: number } | null {
+    if (meta.positions[id]) return { ...meta.positions[id] };
+    const g = nodeById(id);
+    if (!g) return null;
+    const c = nodeCenter(g);
+    let dx = 0;
+    let dy = 0;
+    for (const [pid, p] of Object.entries(meta.positions)) {
+      const pg = nodeById(pid);
+      if (!pg) continue;
+      const pc = nodeCenter(pg);
+      dx = pc.x - p.x;
+      dy = pc.y + p.y;
+      break;
+    }
+    return { x: c.x - dx, y: -(c.y - dy) };
+  }
+
+  /** 自動配置 ⇔ 自由配置。自由にするときは、今の自動配置の位置をそのまま初期位置にする */
+  function setFreeLayout(free: boolean) {
+    if (!free) meta.positions = {};
+    else {
+      for (const g of previewEl.querySelectorAll<SVGGElement>("g.node")) {
+        const c = nodeCenter(g);
+        if (rows.some((r) => r.id === c.id)) meta.positions[c.id] = { x: Math.round(c.x), y: Math.round(-c.y) };
+      }
+    }
+    rebuild();
+  }
+
+  /** 囲みの中にある要素の id（入れ子の中も含む） */
+  function membersOf(boundaryId: string): string[] {
+    const out: string[] = [];
+    for (const r of rows) {
+      if (r.parent !== boundaryId) continue;
+      if (isBoundary(r.macro)) out.push(...membersOf(r.id));
+      else out.push(r.id);
+    }
+    return out;
+  }
+
+  /** 画面上の点の下にある箱（dragged は除く） */
+  function nodeAt(x: number, y: number, except?: Element): SVGGElement | null {
+    for (const e of document.elementsFromPoint(x, y)) {
+      const g = e.closest<SVGGElement>("g.node");
+      if (g && g !== except && previewEl.contains(g)) return g;
+    }
+    return null;
+  }
+
+  const OPPOSITE: Record<string, Dir> = { U: "D", D: "U", L: "R", R: "L" };
+
+  /**
+   * 自動配置: 箱 moved を、箱 target の side 側に置く。
+   * 2 つの間に関係があればその向きを変え、なければ配置だけの Lay_* を足す（既にあれば向きを変える）
+   */
+  function placeBeside(moved: string, target: string, side: Exclude<Dir, null>) {
+    const rel = rels.find((r) => !r.lay && ((r.from === target && r.to === moved) || (r.from === moved && r.to === target)));
+    if (rel) rel.dir = rel.from === target ? side : OPPOSITE[side];
+    else {
+      const lay = rels.find((r) => r.lay && ((r.from === target && r.to === moved) || (r.from === moved && r.to === target)));
+      if (lay) lay.dir = lay.from === target ? side : OPPOSITE[side];
+      else rels.push({ from: target, to: moved, label: "", techn: "", dir: side, both: false, lay: true, style: {}, line: 0 });
+    }
+    const index = rels.findIndex((r) => (r.from === target && r.to === moved) || (r.from === moved && r.to === target));
+    rebuild();
+    select({ type: "rel", index }, true);
+  }
+
+  /** 少しの間、プレビューの上にお知らせを出す */
+  function hint(text: string) {
+    const note = barEl.querySelector<HTMLElement>(".b-hint");
+    if (!note) return;
+    note.textContent = text;
+    note.classList.add("b-flash");
+    setTimeout(() => {
+      note.classList.remove("b-flash");
+      renderBar();
+    }, 2500);
+  }
+
+  function onPreviewPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
+    const target = e.target as Element;
+    const edge = target.closest("g.edge");
+    const node = target.closest<SVGGElement>("g.node");
+    const cluster = target.closest<SVGGElement>("g.cluster");
+    // 線はクリックで選ぶだけ
+    if (edge || format !== "c4" || (!node && !cluster)) {
+      const onUp = () => {
+        previewEl.removeEventListener("pointerup", onUp);
+        pickInPreview(target);
+      };
+      previewEl.addEventListener("pointerup", onUp);
+      return;
+    }
+    const graph = graphOf();
+    const ctm = graph?.getScreenCTM();
+    if (!graph || !ctm) return;
+    e.preventDefault();
+    capture(previewEl, e.pointerId, true);
+    const start = { x: e.clientX, y: e.clientY };
+    const free = isFreeLayout(meta);
+    const startId = node ? nodeCenter(node).id : "";
+    const clusterId = cluster?.querySelector("title")?.textContent?.replace(/^cluster_/, "") ?? "";
+    // 動かす SVG の要素（囲みなら中の要素も）
+    const moving: SVGGElement[] = node
+      ? [node]
+      : free && cluster
+        ? [cluster, ...membersOf(clusterId).map(nodeById).filter((g): g is SVGGElement => !!g)]
+        : [];
+    let dragging = false;
+    let line: SVGLineElement | null = null;
+
+    const toGraph = (x: number, y: number) => ({ x: (x - start.x) / ctm.a, y: (y - start.y) / ctm.d });
+
+    const onMove = (ev: PointerEvent) => {
+      if (!dragging && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 4) return;
+      dragging = true;
+      const d = toGraph(ev.clientX, ev.clientY);
+      if (tool === "line" && node) {
+        const c = nodeCenter(node);
+        if (!line) {
+          line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+          line.setAttribute("class", "b-drawing");
+          graph.append(line);
+        }
+        line.setAttribute("x1", String(c.x));
+        line.setAttribute("y1", String(c.y));
+        line.setAttribute("x2", String(c.x + d.x));
+        line.setAttribute("y2", String(c.y + d.y));
+        return;
+      }
+      for (const g of moving) g.setAttribute("transform", `translate(${d.x} ${d.y})`);
+    };
+
+    const onUp = (ev: PointerEvent) => {
+      previewEl.removeEventListener("pointermove", onMove);
+      previewEl.removeEventListener("pointerup", onUp);
+      capture(previewEl, ev.pointerId, false);
+      line?.remove();
+      if (!dragging) return pickInPreview(target);
+      const d = toGraph(ev.clientX, ev.clientY);
+      // 線を引く
+      if (tool === "line") {
+        const to = node ? nodeAt(ev.clientX, ev.clientY, node) : null;
+        const toId = to ? nodeCenter(to).id : "";
+        if (!node || !toId) return hint("線は、箱から別の箱までドラッグして引きます。");
+        rels.push({ from: startId, to: toId, label: "", techn: "", dir: null, both: false, lay: false, style: {}, line: 0 });
+        rebuild();
+        select({ type: "rel", index: rels.length - 1 }, true);
+        formEl.querySelector<HTMLInputElement>(`tr[data-rel="${rels.length - 1}"] td:nth-child(4) input`)?.focus();
+        return;
+      }
+      // 自由配置: 落とした位置に固定する
+      if (free) {
+        const ids = node ? [startId] : membersOf(clusterId);
+        for (const id of ids) {
+          const p = positionOf(id);
+          if (p) meta.positions[id] = { x: Math.round(p.x + d.x), y: Math.round(p.y - d.y) };
+        }
+        rebuild();
+        return;
+      }
+      // 自動配置: 別の箱の上下左右に寄せる
+      for (const g of moving) g.removeAttribute("transform");
+      const to = node ? nodeAt(ev.clientX, ev.clientY, node) : null;
+      if (!node || !to) {
+        return hint(
+          node
+            ? "別の箱の上下左右に重ねて落とすと、その側に置きます。好きな位置に置くには「配置」を「自由」にします。"
+            : "囲みを動かすには「配置」を「自由」にします。",
+        );
+      }
+      const r = to.getBoundingClientRect();
+      const dx = (ev.clientX - (r.left + r.width / 2)) / r.width;
+      const dy = (ev.clientY - (r.top + r.height / 2)) / r.height;
+      const side: Exclude<Dir, null> = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? "R" : "L") : dy > 0 ? "D" : "U";
+      placeBeside(startId, nodeCenter(to).id, side);
+    };
+    previewEl.addEventListener("pointermove", onMove);
+    previewEl.addEventListener("pointerup", onUp);
+  }
+
+  /** プレビューのクリック: 線・箱・囲みを選ぶ */
+  function pickInPreview(target: Element) {
+    if (format !== "c4") return;
+    const edge = target.closest("g.edge");
+    const m = edge ? /^c4rel(\d+)$/.exec(edge.id) : null;
+    if (m) return select({ type: "rel", index: Number(m[1]) });
+    const node = target.closest("g.node, g.cluster");
+    const title = node?.querySelector("title")?.textContent?.replace(/^cluster_/, "");
+    const row = rows.find((r) => r.id === title);
+    if (row) select({ type: "row", key: row.key });
+  }
+
+  /** プレビューの上の道具（ドラッグの意味の切り替えと説明） */
+  function renderBar() {
+    if (!barEl) return;
+    if (format !== "c4") {
+      barEl.replaceChildren(
+        el("span", { className: "b-hint", textContent: "ドラッグでの配置・線の追加は ```c4 のときだけ使えます（Mermaid は位置を指定できないため）。" }),
+      );
+      return;
+    }
+    const seg = el("div", { className: "segmented" });
+    for (const [value, label, title] of [
+      ["move", "移動", "箱をドラッグして動かす"],
+      ["line", "線を引く", "箱から箱へドラッグして関係を追加する"],
+    ] as const) {
+      const b = el("button", { type: "button", textContent: label, title });
+      b.classList.toggle("active", tool === value);
+      b.addEventListener("click", () => {
+        tool = value;
+        renderBar();
+      });
+      seg.append(b);
+    }
+    const text =
+      tool === "line"
+        ? "箱から別の箱へドラッグすると、線（関係）を追加します。"
+        : isFreeLayout(meta)
+          ? "自由配置: 箱や囲みをドラッグした位置に置きます。線は自動で引きます。"
+          : "箱を別の箱の上下左右に重ねて落とすと、その側に置きます（Rel_* / Lay_*）。";
+    barEl.replaceChildren(el("span", { textContent: "ドラッグで:" }), seg, el("span", { className: "b-hint", textContent: text }));
+  }
+
+  // ---------- 表の行のドラッグ（並べ替え・囲みに入れる） ----------
+
+  function startRowDrag(e: PointerEvent, row: Row, tr: HTMLTableRowElement) {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const grip = e.currentTarget as HTMLElement;
+    capture(grip, e.pointerId, true);
+    tr.classList.add("b-dragging");
+    let drop: { row: Row; where: "before" | "after" | "into"; tr: HTMLElement } | null = null;
+    const clear = () => drop?.tr.classList.remove("b-drop-before", "b-drop-after", "b-drop-into");
+
+    const onMove = (ev: PointerEvent) => {
+      clear();
+      drop = null;
+      // 表の上端・下端に近づいたら、見えていない行へ届くようにスクロールする
+      const area = formEl.getBoundingClientRect();
+      if (ev.clientY < area.top + 30) formEl.scrollTop -= 12;
+      else if (ev.clientY > area.bottom - 30) formEl.scrollTop += 12;
+      const over = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("tr[data-key]");
+      const target = over && rows.find((r) => String(r.key) === over.dataset.key);
+      if (!over || !target || target === row || !formEl.contains(over)) return;
+      const r = over.getBoundingClientRect();
+      const t = (ev.clientY - r.top) / r.height;
+      // 囲みの行の真ん中なら中へ（自分の中には入れない）
+      const into = isBoundary(target.macro) && t > 0.3 && t < 0.7 && !(isBoundary(row.macro) && membersOfBoundary(row.id).includes(target.id));
+      drop = { row: target, where: into ? "into" : t < 0.5 ? "before" : "after", tr: over };
+      over.classList.add(`b-drop-${drop.where}`);
+    };
+    const onUp = (ev: PointerEvent) => {
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      capture(grip, ev.pointerId, false);
+      tr.classList.remove("b-dragging");
+      clear();
+      if (!drop) return;
+      rows.splice(rows.indexOf(row), 1);
+      const at = rows.indexOf(drop.row);
+      if (drop.where === "into") {
+        row.parent = drop.row.id;
+        rows.splice(at + 1, 0, row);
+      } else {
+        row.parent = drop.row.parent;
+        rows.splice(drop.where === "before" ? at : at + 1, 0, row);
+      }
+      selected = { type: "row", key: row.key };
+      rebuild();
+    };
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
+  }
+
+  /** 囲みの中の行の id（入れ子の囲みも含む） */
+  function membersOfBoundary(id: string): string[] {
+    return rows.filter((r) => r.parent === id).flatMap((r) => [r.id, ...(isBoundary(r.macro) ? membersOfBoundary(r.id) : [])]);
+  }
+
   // ---------- DiagramForm ----------
 
   return {
@@ -536,31 +872,28 @@ export function createC4Form(): DiagramForm {
         fromModel(m);
       } else fromModel(parseC4(body));
     },
-    mount(form, side, onChange) {
-      formEl = form;
-      selectEl = side;
+    mount(parts, onChange) {
+      formEl = parts.form;
+      selectEl = parts.side;
+      barEl = parts.bar;
+      // プレビューの要素は開くたびに同じものなので、操作は 1 回だけ登録する
+      if (previewEl !== parts.preview) {
+        previewEl = parts.preview;
+        previewEl.addEventListener("pointerdown", onPreviewPointerDown);
+      }
       changed = onChange;
       renderForm();
       renderSelection();
+      renderBar();
     },
     setFormat(f) {
       format = f as "c4" | "mermaid";
       renderSelection();
+      renderBar();
     },
     code: () => writeC4(toModel(), format),
-    afterRender(preview) {
-      previewEl = preview;
+    afterRender() {
       markPreview();
-    },
-    onPreviewClick(target) {
-      if (format !== "c4") return;
-      const edge = target.closest("g.edge");
-      const m = edge ? /^c4rel(\d+)$/.exec(edge.id) : null;
-      if (m) return select({ type: "rel", index: Number(m[1]) });
-      const node = target.closest("g.node, g.cluster");
-      const title = node?.querySelector("title")?.textContent?.replace(/^cluster_/, "");
-      const row = rows.find((r) => r.id === title);
-      if (row) select({ type: "row", key: row.key });
     },
   };
 }

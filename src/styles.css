@@ -346,6 +346,28 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .builder-preview g.b-picked path,
 .builder-preview g.b-picked polygon:not([fill="white"]) { stroke: var(--accent); stroke-width: 3; }
 .builder-preview g.b-picked text { font-weight: bold; }
+/* プレビューの上の道具（ドラッグの意味の切り替え） */
+.b-preview-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.b-preview-bar .b-hint { color: var(--muted); }
+.b-preview-bar .b-hint.b-flash { color: var(--accent); font-weight: bold; }
+.builder-preview svg { touch-action: none; user-select: none; }
+.builder-preview g.node,
+.builder-preview g.cluster { cursor: grab; }
+.builder-preview line.b-drawing { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 6 3; pointer-events: none; }
+/* 表の行のドラッグ */
+.b-grip { cursor: grab; color: var(--muted); padding: 0 4px; user-select: none; touch-action: none; }
+.b-table tr.b-dragging { opacity: 0.45; }
+.b-table tr.b-drop-before td { box-shadow: inset 0 2px 0 var(--accent); }
+.b-table tr.b-drop-after td { box-shadow: inset 0 -2px 0 var(--accent); }
+.b-table tr.b-drop-into td { background: color-mix(in srgb, var(--accent) 22%, transparent); }
 .b-select {
   flex: none;
   padding: 8px 12px;

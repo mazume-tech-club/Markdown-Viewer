@@ -2,7 +2,7 @@
 // Mermaid の C4 は線の経路や配置を制御できないので、レイアウトは Graphviz に任せ、
 // Rel_R / Lay_D などの方向指定で配置を誘導できるようにする。解析は c4model.ts。
 
-import { BOUNDARY_TYPES, parseC4, walk, type C4Element, type C4Model, type C4Node, type Dir } from "./c4model";
+import { BOUNDARY_TYPES, isFreeLayout, parseC4, walk, type C4Element, type C4Model, type C4Node, type Dir } from "./c4model";
 
 
 interface ElementKind {
@@ -117,9 +117,13 @@ export function modelToDot(model: C4Model): string {
     styles.set(s.id, { ...styles.get(s.id), ...s.props });
   }
 
+  // 自由配置: 位置を固定して neato で線だけ引く（囲みは neato が描かないので drawBoundaries で描き足す）
+  const free = isFreeLayout(model);
   const out: string[] = [
     "digraph C4 {",
-    `  graph [rankdir=${rankdir}, newrank=true, compound=true, nodesep=0.7, ranksep=0.8, fontname=${quote(FONT)}, pad=0.2];`,
+    free
+      ? `  graph [layout=neato, inputscale=72, splines=true, overlap=false, sep="+12", fontname=${quote(FONT)}, pad=0.8];`
+      : `  graph [rankdir=${rankdir}, newrank=true, compound=true, nodesep=0.7, ranksep=0.8, fontname=${quote(FONT)}, pad=0.2];`,
     `  node [fontname=${quote(FONT)}, fontsize=12, margin="0.25,0.12"];`,
     `  edge [fontname=${quote(FONT)}, fontsize=10, color="#707070", fontcolor="#555555", arrowsize=0.8];`,
   ];
@@ -146,8 +150,10 @@ export function modelToDot(model: C4Model): string {
       ...wrapLines(n.descr, WRAP).map((s) => textWidth(s, 12)),
     ];
     const width = (Math.max(...widths) + 0.5).toFixed(2);
+    const p = free ? model.positions[n.id] : undefined;
+    const pos = p ? `, pos="${p.x},${p.y}!"` : "";
     out.push(
-      `  ${quote(n.id)} [${shape}${cls}, width=${width}, fillcolor=${quote(bg)}, color=${quote(border)}, fontcolor=${quote(font)}, label=<${label}>];`,
+      `  ${quote(n.id)} [${shape}${cls}${pos}, width=${width}, fillcolor=${quote(bg)}, color=${quote(border)}, fontcolor=${quote(font)}, label=<${label}>];`,
     );
   }
 
@@ -168,7 +174,7 @@ export function modelToDot(model: C4Model): string {
       out.push(`${indent}}`);
     }
   };
-  tree(model.nodes, "  ");
+  if (!free) tree(model.nodes, "  ");
 
   /** 線の端：要素ならその id、囲みなら中の最初の要素（枠で止める） */
   const end = (id: string, line: number): { node: string; cluster?: string } => {
@@ -197,11 +203,12 @@ export function modelToDot(model: C4Model): string {
       if (e.both) attrs.push("dir=both");
       else if (reverse) attrs.push("dir=back");
     }
-    if (tail.cluster) attrs.push(`ltail=${quote(tail.cluster)}`);
-    if (head.cluster) attrs.push(`lhead=${quote(head.cluster)}`);
+    // 自由配置（neato）では、囲みで止める・段をそろえる指定は効かないので付けない
+    if (tail.cluster && !free) attrs.push(`ltail=${quote(tail.cluster)}`);
+    if (head.cluster && !free) attrs.push(`lhead=${quote(head.cluster)}`);
     attrs.push(`id="${relSvgId(i)}"`);
     out.push(`  ${quote(tail.node)} -> ${quote(head.node)} [${attrs.join(", ")}];`);
-    if (!along(e.dir)) out.push(`  { rank=same; ${quote(tail.node)}; ${quote(head.node)}; }`);
+    if (!along(e.dir) && !free) out.push(`  { rank=same; ${quote(tail.node)}; ${quote(head.node)}; }`);
   });
   out.push("}");
   return out.join("\n");
@@ -230,4 +237,114 @@ export function drawPersonIcons(svg: string): string {
       `<path d="M${f(cx - 9)},${f(y + 3)} A9,8 0 0 1 ${f(cx + 9)},${f(y + 3)} Z" fill="${fill}"/>`;
     return open + body.replace(space[0], icon) + close;
   });
+}
+
+interface Box {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+/** SVG の要素（path の d・polygon の points）に出てくる座標の範囲 */
+function boxOf(markup: string): Box | null {
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (const attr of markup.matchAll(/\s(?:d|points)="([^"]+)"/g)) {
+    for (const m of attr[1].matchAll(/(-?[\d.]+),(-?[\d.]+)/g)) {
+      xs.push(Number(m[1]));
+      ys.push(Number(m[2]));
+    }
+  }
+  if (!xs.length) return null;
+  return { x1: Math.min(...xs), y1: Math.min(...ys), x2: Math.max(...xs), y2: Math.max(...ys) };
+}
+
+/** Graphviz の SVG から、要素（ノード）ごとの範囲を取り出す。座標は SVG のグラフ座標（y は下向き・負） */
+export function nodeBoxes(svg: string): Map<string, Box> {
+  const boxes = new Map<string, Box>();
+  for (const m of svg.matchAll(/<g\b[^>]*class="node[^"]*"[^>]*>\s*<title>([^<]*)<\/title>([\s\S]*?)<\/g>/g)) {
+    const box = boxOf(m[2]);
+    if (box) boxes.set(decodeEntities(m[1]), box);
+  }
+  return boxes;
+}
+
+const decodeEntities = (s: string) =>
+  s.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n))).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
+
+/**
+ * 自由配置（neato）の SVG に囲み（Boundary）を描き足す。neato は囲みを描かないので、
+ * 中の要素の範囲を囲む破線の枠と名前を、要素の後ろに入れる。自由配置でなければそのまま返す
+ */
+export function drawBoundaries(svg: string, model: C4Model): string {
+  if (!isFreeLayout(model)) return svg;
+  const boxes = nodeBoxes(svg);
+  const PAD = 14;
+  const LABEL = 30;
+  const shapes: string[] = [];
+  const f = (n: number) => n.toFixed(2);
+  let all: Box | null = null;
+  const union = (a: Box | null, b: Box | null): Box | null =>
+    !a ? b : !b ? a : { x1: Math.min(a.x1, b.x1), y1: Math.min(a.y1, b.y1), x2: Math.max(a.x2, b.x2), y2: Math.max(a.y2, b.y2) };
+
+  /** 囲みの範囲を中から順に求め、外側の枠ほど先（後ろ）に描く */
+  const visit = (nodes: C4Node[]): Box | null => {
+    let range: Box | null = null;
+    for (const n of nodes) {
+      if (n.type === "element") {
+        range = union(range, boxes.get(n.id) ?? null);
+        continue;
+      }
+      const at = shapes.length;
+      const inner = visit(n.children);
+      if (!inner) continue;
+      const b = { x1: inner.x1 - PAD, y1: inner.y1 - PAD - LABEL, x2: inner.x2 + PAD, y2: inner.y2 + PAD };
+      const type = n.typeLabel ?? BOUNDARY_TYPES[n.macro];
+      const r = 6;
+      const path =
+        `M${f(b.x1 + r)},${f(b.y1)} L${f(b.x2 - r)},${f(b.y1)} Q${f(b.x2)},${f(b.y1)} ${f(b.x2)},${f(b.y1 + r)} ` +
+        `L${f(b.x2)},${f(b.y2 - r)} Q${f(b.x2)},${f(b.y2)} ${f(b.x2 - r)},${f(b.y2)} L${f(b.x1 + r)},${f(b.y2)} ` +
+        `Q${f(b.x1)},${f(b.y2)} ${f(b.x1)},${f(b.y2 - r)} L${f(b.x1)},${f(b.y1 + r)} Q${f(b.x1)},${f(b.y1)} ${f(b.x1 + r)},${f(b.y1)} Z`;
+      const text = (y: number, size: number, bold: boolean, s: string) =>
+        `<text text-anchor="start" x="${f(b.x1 + 8)}" y="${f(y)}" font-family="${FONT}" font-size="${size}"${bold ? ' font-weight="bold"' : ""} fill="#444444">${htmlEsc(s)}</text>`;
+      shapes.splice(
+        at,
+        0,
+        `<g class="cluster"><title>cluster_${htmlEsc(n.id)}</title>` +
+          `<path fill="none" stroke="#444444" stroke-dasharray="5,2" d="${path}"/>` +
+          text(b.y1 + 16, 12, true, n.label) +
+          (type ? text(b.y1 + 27, 10, false, `[${type}]`) : "") +
+          "</g>",
+      );
+      range = union(range, b);
+    }
+    all = union(all, range);
+    return range;
+  };
+  visit(model.nodes);
+  if (!shapes.length || !all) return svg;
+
+  // 背景（最初の polygon）の直後、要素より前に入れる
+  const bg = /(<g\b[^>]*class="graph"[^>]*>[\s\S]*?<polygon\b[^>]*\/>)/.exec(svg);
+  if (!bg) return svg;
+  let out = svg.replace(bg[1], bg[1] + shapes.join(""));
+
+  // 枠が図の外にはみ出すときは、表示範囲（viewBox）を広げる
+  const tr = /class="graph"[^>]*transform="[^"]*translate\((-?[\d.]+)[ ,](-?[\d.]+)\)/.exec(svg);
+  const vb = /viewBox="(-?[\d.]+) (-?[\d.]+) (-?[\d.]+) (-?[\d.]+)"/.exec(svg);
+  if (tr && vb) {
+    const box = all as Box;
+    const [tx, ty] = [Number(tr[1]), Number(tr[2])];
+    const [vx, vy, vw, vh] = vb.slice(1).map(Number);
+    const x1 = Math.min(vx, box.x1 + tx - 4);
+    const y1 = Math.min(vy, box.y1 + ty - 4);
+    const x2 = Math.max(vx + vw, box.x2 + tx + 4);
+    const y2 = Math.max(vy + vh, box.y2 + ty + 4);
+    out = out
+      .replace(vb[0], `viewBox="${f(x1)} ${f(y1)} ${f(x2 - x1)} ${f(y2 - y1)}"`)
+      .replace(/(<svg\b[^>]*?)width="[\d.]+pt"/, `$1width="${f(x2 - x1)}pt"`)
+      .replace(/(<svg\b[^>]*?)height="[\d.]+pt"/, `$1height="${f(y2 - y1)}pt"`);
+  }
+  return out;
 }

@@ -86,8 +86,13 @@ async function renderOne(kind: string, src: string, dark: boolean): Promise<stri
       return renderDot(src);
     case "c4": {
       // C4 の書き方を DOT に変換して Graphviz で描く（線の経路は Graphviz に任せる）
-      const { c4ToDot, drawPersonIcons } = await import("./c4dot");
-      return renderDot(c4ToDot(src), drawPersonIcons);
+      // 自由配置（Pos）のときは、Graphviz が描かない囲みも描き足す
+      const [{ modelToDot, drawPersonIcons, drawBoundaries }, { parseC4 }] = await Promise.all([
+        import("./c4dot"),
+        import("./c4model"),
+      ]);
+      const model = parseC4(src, true);
+      return renderDot(modelToDot(model), (svg) => drawBoundaries(drawPersonIcons(svg), model));
     }
     case "wavedrom": {
       const [wd, { default: JSON5 }] = await Promise.all([import("wavedrom"), import("json5")]);

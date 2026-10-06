@@ -324,7 +324,24 @@ newTabButton.title = "新しいタブ (Ctrl+N)";
 
 function updateTitle() {
   void appWindow.setTitle(`${tabName(active)}${active.dirty ? " •" : ""} - Markdown Preview`);
+  // 無題（まだ保存していない）ならパスがないのでコピーできない
+  copyPathBtn.disabled = !active.path;
 }
+
+const copyPathBtn = $<HTMLButtonElement>("btn-copy-path");
+/** 表示中のタブのファイルのパスをクリップボードにコピーする */
+async function copyPath() {
+  if (!active.path) return;
+  try {
+    await navigator.clipboard.writeText(active.path);
+    const label = "パスをコピー";
+    copyPathBtn.textContent = "コピーしました";
+    setTimeout(() => (copyPathBtn.textContent = label), 1500);
+  } catch (err) {
+    await showError(err);
+  }
+}
+copyPathBtn.addEventListener("click", () => copyPath());
 
 function renderTabs() {
   tabBar.replaceChildren(
@@ -940,6 +957,7 @@ window.addEventListener(
     }
     if (!pdfOverlay.hidden && e.key === "Escape") run(() => closePdfPreview());
     else if (mod && e.shiftKey && key === "d") run(() => builder.open());
+    else if (mod && e.shiftKey && key === "c") run(() => copyPath());
     else if (!settingsOverlay.hidden && e.key === "Escape") run(() => closeSettings());
     else if (!pdfOverlay.hidden && mod && key === "s") run(() => savePdf());
     else if (mod && key === "s") run(() => saveFile(e.shiftKey));

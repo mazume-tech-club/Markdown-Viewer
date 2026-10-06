@@ -17,15 +17,16 @@ export interface DiagramForm {
   accepts(lang: string, body: string): boolean;
   /** 読み込む（null なら新しい図の雛形） */
   load(body: string | null): void;
-  /** form に入力欄を、side に選択中の項目のパネルを描く。内容が変わったら onChange を呼ぶ */
-  mount(form: HTMLElement, side: HTMLElement, onChange: () => void): void;
+  /**
+   * 画面に組み込む。form に入力欄、side に選択中の項目のパネル、bar にプレビュー上の道具を描く。
+   * preview（プレビュー）のクリックやドラッグもフォームが受け持つ。内容が変わったら onChange を呼ぶ
+   */
+  mount(parts: { form: HTMLElement; side: HTMLElement; bar: HTMLElement; preview: HTMLElement }, onChange: () => void): void;
   setFormat(format: string): void;
   /** 今の内容のソース（コードブロックの中身） */
   code(): string;
   /** プレビューを描いた後（選択の強調など） */
-  afterRender?(preview: HTMLElement): void;
-  /** プレビューがクリックされたとき */
-  onPreviewClick?(target: Element): void;
+  afterRender?(): void;
 }
 
 const FORMAT_KEY = "builder.format";
@@ -62,6 +63,7 @@ export function setupBuilder(opts: {
       <div class="builder-body">
         <div class="builder-form"></div>
         <div class="builder-side">
+          <div class="b-preview-bar"></div>
           <div class="builder-preview markdown-body"></div>
           <div class="b-select"></div>
           <details class="b-code">
@@ -80,6 +82,7 @@ export function setupBuilder(opts: {
   const formEl = q<HTMLElement>(".builder-form");
   const previewEl = q<HTMLElement>(".builder-preview");
   const selectEl = q<HTMLElement>(".b-select");
+  const barEl = q<HTMLElement>(".b-preview-bar");
   const codeEl = q<HTMLElement>(".b-code pre");
 
   const forms = [createC4Form()];
@@ -103,7 +106,7 @@ export function setupBuilder(opts: {
       const my = ++gen;
       previewEl.innerHTML = `<div class="diagram" data-kind="${kind}"><pre class="diagram-src">${esc(code)}</pre></div>`;
       await renderDiagrams(previewEl, opts.isDark(), () => my === gen && !root.hidden);
-      if (my === gen) form.afterRender?.(previewEl);
+      if (my === gen) form.afterRender?.();
     }, delay);
   }
 
@@ -112,7 +115,6 @@ export function setupBuilder(opts: {
     form.setFormat(lang());
     refresh(0);
   });
-  previewEl.addEventListener("click", (e) => form.onPreviewClick?.(e.target as Element));
   q<HTMLButtonElement>(".b-close").addEventListener("click", () => close());
   applyBtn.addEventListener("click", () => {
     if (!opts.canEdit()) return;
@@ -147,7 +149,7 @@ export function setupBuilder(opts: {
     targetEl.textContent = target ? "カーソル位置の図を編集中" : "カーソル位置に新しい図を挿入します";
     applyBtn.textContent = target ? "置き換え" : "挿入";
     form.setFormat(lang());
-    form.mount(formEl, selectEl, () => refresh());
+    form.mount({ form: formEl, side: selectEl, bar: barEl, preview: previewEl }, () => refresh());
     root.hidden = false;
     refresh(0);
   }

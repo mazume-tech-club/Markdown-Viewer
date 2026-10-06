@@ -111,6 +111,11 @@ export interface C4Model {
   dot: string[];
   /** UpdateLayoutConfig の名前付き引数（Mermaid 用） */
   layoutConfig: Record<string, string>;
+  /**
+   * 自由配置の位置（```c4 の `Pos(id, x, y)`。図のビルダーで箱をドラッグして決める）。
+   * 1 つでもあれば、自動の段組みではなく、この位置に置いて線だけ自動で引く。単位は pt、y は上向き
+   */
+  positions: Record<string, { x: number; y: number }>;
   /** 解釈しない行（コメントや未対応のマクロ）。書き出し時に末尾へそのまま残す */
   extra: string[];
 }
@@ -124,8 +129,12 @@ export const emptyModel = (): C4Model => ({
   styles: [],
   dot: [],
   layoutConfig: {},
+  positions: {},
   extra: [],
 });
+
+/** 自由配置（Pos がある）か */
+export const isFreeLayout = (model: C4Model) => Object.keys(model.positions).length > 0;
 
 interface Args {
   pos: string[];
@@ -294,6 +303,14 @@ export function parseC4(src: string, strict = false): C4Model {
         Object.assign(model.layoutConfig, args.named);
         return;
       }
+      if (name === "Pos") {
+        const [id, x, y] = args.pos;
+        if (!id || !Number.isFinite(Number(x)) || !Number.isFinite(Number(y)) || x === "" || y === "") {
+          fail("Pos は Pos(id, x, y) の形で書きます");
+        }
+        model.positions[id] = { x: Number(x), y: Number(y) };
+        return;
+      }
       if (PASSIVE.has(name) || !strict) {
         model.extra.push(line);
         return;
@@ -389,6 +406,10 @@ export function writeC4(model: C4Model, format: "c4" | "mermaid"): string {
   }
   const config = named(model.layoutConfig);
   if (config.length) tail.push(indent + call("UpdateLayoutConfig", [], config));
+  // 自由配置の位置は ```c4 だけ（Mermaid には位置を指定する書き方がない）
+  if (!mermaid) {
+    for (const [id, p] of Object.entries(model.positions)) tail.push(`Pos(${id}, ${Math.round(p.x)}, ${Math.round(p.y)})`);
+  }
   for (const e of model.extra) tail.push(indent + e);
   if (tail.length) out.push("", ...tail);
   return `${out.join("\n")}\n`;
