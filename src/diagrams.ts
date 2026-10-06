@@ -45,10 +45,11 @@ const sanitizeSvg = (svg: string) =>
     ADD_ATTR: ["xlink:href"],
   });
 
-async function renderDot(src: string): Promise<string> {
+/** DOT を描画する。post で、サニタイズ前の SVG に手を加えられる */
+async function renderDot(src: string, post: (svg: string) => string = (svg) => svg): Promise<string> {
   vizP ??= import("@viz-js/viz").then((m) => m.instance());
   const viz = await vizP;
-  return sanitizeSvg(viz.renderSVGElement(src).outerHTML);
+  return sanitizeSvg(post(viz.renderSVGElement(src).outerHTML));
 }
 
 async function renderOne(kind: string, src: string, dark: boolean): Promise<string> {
@@ -69,8 +70,8 @@ async function renderOne(kind: string, src: string, dark: boolean): Promise<stri
       return renderDot(src);
     case "c4": {
       // C4 の書き方を DOT に変換して Graphviz で描く（線の経路は Graphviz に任せる）
-      const { c4ToDot } = await import("./c4dot");
-      return renderDot(c4ToDot(src));
+      const { c4ToDot, drawPersonIcons } = await import("./c4dot");
+      return renderDot(c4ToDot(src), drawPersonIcons);
     }
     case "wavedrom": {
       const [wd, { default: JSON5 }] = await Promise.all([import("wavedrom"), import("json5")]);

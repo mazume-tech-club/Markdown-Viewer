@@ -550,6 +550,7 @@ digraph G {
 - 配置だけ: `Lay_D` `Lay_U` `Lay_R` `Lay_L`
 - 全体: `title` `LAYOUT_TOP_DOWN()` `LAYOUT_LEFT_RIGHT()` `UpdateElementStyle` `dot:`
 - 文字列の中の `\n` で改行できる。要素の説明は長いと自動で折り返す
+- `Person` / `Person_Ext` は人のアイコン付きの箱になる
 
 ## コンテキスト図
 `Person(id, "名前", "説明")`、`System(id, "名前", "説明")`、`Rel(元, 先, "説明", "技術")`。
@@ -595,6 +596,32 @@ Rel(user, spa, "見る")
 Rel_R(spa, api, "呼ぶ")
 Rel_R(api, mail, "通知")
 Lay_D(user, mon)
+```
+~~~~
+
+## 線の交差を減らすコツ
+線が交差するのは、ひとつの要素から「囲みの中（DB・ファイル）」と「外部システム」の両方へ線が出ていて、相手が同じ段に並ぶとき。次の順に試す。
+- 囲みの中の相手への線を `Rel_U` にして上の段へ、外部システムへの線は `Rel` のまま下の段へ分ける（矢印の向きは変わらず、置く場所だけが上になる）
+- 複数の要素から線が集まる相手（共通の DB など）は、線を出す要素たちの真上か真下に来るよう `Rel_U` / `Rel_D` をそろえる
+- 横に並べたい相手は `Rel_R` / `Rel_L`、線を引かずに位置だけ決めたいときは `Lay_*` を使う
+- それでも詰まって見えるときは `dot: nodesep=1.0` / `dot: ranksep=1.0` で間隔を広げる
+下の例は、DB への 2 本を `Rel_U` にしたもの。`Rel` に戻すと DB と外部システムが同じ段に並び、線が交差する。
+~~~~example
+```c4
+Container_Boundary(sv, "サーバ") {
+  Container(web, "Web", "Django")
+  Container(batch, "バッチ", "cron")
+  ContainerDb(db, "DB", "PostgreSQL")
+}
+System_Ext(sql, "SQL Server")
+System_Ext(plc, "設備PLC")
+System_Ext(mail, "SMTP")
+Rel_U(web, db, "読み書き")
+Rel_U(batch, db, "書き込み")
+Rel(web, sql, "読み書き")
+Rel(batch, sql, "読む")
+Rel(batch, plc, "読み出し")
+Rel(batch, mail, "通知")
 ```
 ~~~~
 

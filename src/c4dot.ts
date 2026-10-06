@@ -9,6 +9,8 @@ interface ElementKind {
   border: string;
   font: string;
   db?: boolean;
+  /** 人のアイコンを付けるか（Person / Person_Ext） */
+  person?: boolean;
   /** 引数が (id, 名前, 技術, 説明) か（false なら (id, 名前, 説明)） */
   techn: boolean;
 }
@@ -24,8 +26,8 @@ const COMPONENT = { bg: "#85bbf0", border: "#78a8d8", font: "#000000" };
 const COMPONENT_EXT = { bg: "#cccccc", border: "#bfbfbf", font: "#000000" };
 
 const ELEMENTS: Record<string, ElementKind> = {
-  Person: { type: "Person", ...PERSON, techn: false },
-  Person_Ext: { type: "External Person", ...PERSON_EXT, techn: false },
+  Person: { type: "Person", ...PERSON, person: true, techn: false },
+  Person_Ext: { type: "External Person", ...PERSON_EXT, person: true, techn: false },
   System: { type: "Software System", ...SYSTEM, techn: false },
   SystemDb: { type: "Software System", ...SYSTEM, db: true, techn: false },
   System_Ext: { type: "External System", ...SYSTEM_EXT, techn: false },
@@ -83,6 +85,10 @@ const IGNORED = new Set([
 ]);
 
 const FONT = "Yu Gothic UI,Meiryo,sans-serif";
+/** 人のアイコン用に、ラベルの上に空ける行の高さ（pt） */
+const PERSON_ICON_SPACE = 22;
+// Graphviz は class 名の「-」を &#45; にするので使わない
+const PERSON_CLASS = "c4person";
 /** 説明を折り返す幅（半角 1・全角 2 で数える）。Graphviz の文字幅の見積もりが全角で少し狭いので控えめにする */
 const WRAP = 26;
 
@@ -311,6 +317,9 @@ export function c4ToDot(src: string): string {
     const type = n.techn ? `${n.kind.type}: ${n.techn}` : n.kind.type;
     let label = `<b>${lines(n.label)}</b><br/><font point-size="9">[${lines(type)}]</font>`;
     if (n.descr) label += `<br/><br/>${lines(n.descr, WRAP)}`;
+    // 人は上に空行を入れておき、描画後に drawPersonIcons でそこへアイコンを描く
+    if (n.kind.person) label = `<font point-size="${PERSON_ICON_SPACE}"> </font><br/>${label}`;
+    const cls = n.kind.person ? `, class="${PERSON_CLASS}"` : "";
     const bg = n.style.bgColor ?? n.kind.bg;
     const border = n.style.borderColor ?? n.kind.border;
     const font = n.style.fontColor ?? n.kind.font;
@@ -323,7 +332,7 @@ export function c4ToDot(src: string): string {
     ];
     const width = (Math.max(...widths) + 0.5).toFixed(2);
     out.push(
-      `  ${quote(n.id)} [${shape}, width=${width}, fillcolor=${quote(bg)}, color=${quote(border)}, fontcolor=${quote(font)}, label=<${label}>];`,
+      `  ${quote(n.id)} [${shape}${cls}, width=${width}, fillcolor=${quote(bg)}, color=${quote(border)}, fontcolor=${quote(font)}, label=<${label}>];`,
     );
   }
   out.push(...root.map((l) => `  ${l}`));
@@ -362,4 +371,29 @@ export function c4ToDot(src: string): string {
   }
   out.push("}");
   return out.join("\n");
+}
+
+/**
+ * Graphviz が出力した SVG の人の要素に、頭と肩のアイコンを描き足す。
+ * c4ToDot がラベルの上に空けておいた空行（空白だけの text）をアイコンに置き換える
+ */
+export function drawPersonIcons(svg: string): string {
+  const node = new RegExp(`(<g\\b[^>]*class="node ${PERSON_CLASS}"[^>]*>)([\\s\\S]*?)(</g>)`, "g");
+  return svg.replace(node, (all, open: string, body: string, close: string) => {
+    // 箱の左右の端（path の x 座標の最小・最大）から中心を求める
+    const d = /<path\b[^>]*\sd="([^"]+)"/.exec(body)?.[1];
+    const space = new RegExp(`<text\\b[^>]*font-size="${PERSON_ICON_SPACE}(?:\\.0+)?"[^>]*>\\s*</text>`).exec(body);
+    if (!d || !space) return all;
+    const xs = [...d.matchAll(/(-?[\d.]+),(-?[\d.]+)/g)].map((m) => Number(m[1]));
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const y = Number(/\sy="(-?[\d.]+)"/.exec(space[0])?.[1]);
+    const fill = /\sfill="([^"]+)"/.exec(space[0])?.[1] ?? "#ffffff";
+    if (!Number.isFinite(cx) || !Number.isFinite(y)) return all;
+    // y は空行の文字の基準線。基準線の少し下を肩の下端にする
+    const f = (n: number) => n.toFixed(2);
+    const icon =
+      `<circle cx="${f(cx)}" cy="${f(y - 11)}" r="5" fill="${fill}"/>` +
+      `<path d="M${f(cx - 9)},${f(y + 3)} A9,8 0 0 1 ${f(cx + 9)},${f(y + 3)} Z" fill="${fill}"/>`;
+    return open + body.replace(space[0], icon) + close;
+  });
 }
