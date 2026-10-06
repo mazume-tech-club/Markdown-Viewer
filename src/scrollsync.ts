@@ -30,9 +30,10 @@ export function findLineElement(pane: HTMLElement, line: number): HTMLElement | 
 
 /**
  * エディタとプレビューのスクロール位置を、ソース行を介して連動させる。
- * 戻り値はプレビューをエディタの位置に合わせる関数（表示切替時に使う）
+ * followCursor がオンでカーソルがエディタの画面内にあれば、カーソル行の箇所をカーソルと同じ高さに表示する。
+ * それ以外（カーソルが画面外・オフ）は、エディタの一番上の行に合わせる
  */
-export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () => boolean) {
+export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () => boolean, followCursor: () => boolean) {
   // 片方を動かしたことで発火した、もう片方のスクロールイベントを無視する
   let lockUntil = 0;
   let source: "editor" | "preview" | null = null;
@@ -42,16 +43,22 @@ export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () =
   };
   const locked = (s: typeof source) => source !== s && performance.now() < lockUntil;
 
-  const syncPreview = () => {
-    const line = editor.topLine();
+  /** ソース行 line に当たるプレビュー上の y（前後の要素の間を補間する。長いコードブロックの途中でもずれないように） */
+  const previewYOf = (line: number): number | null => {
     const list = anchors(pane);
-    if (!list.length) return;
+    if (!list.length) return null;
     let i = list.findIndex((a) => a.line > line);
     if (i === -1) i = list.length;
     const prev = list[i - 1] ?? { line: 0, top: 0 };
     const next = list[i] ?? { line: editor.view.state.doc.lines, top: pane.scrollHeight };
     const ratio = next.line === prev.line ? 0 : (line - prev.line) / (next.line - prev.line);
-    pane.scrollTop = prev.top + (next.top - prev.top) * ratio;
+    return prev.top + (next.top - prev.top) * ratio;
+  };
+
+  const syncPreview = () => {
+    const offset = followCursor() ? editor.cursorOffset() : null;
+    const y = offset === null ? previewYOf(editor.topLine()) : previewYOf(editor.cursorLine());
+    if (y !== null) pane.scrollTop = y - (offset ?? 0);
   };
 
   editor.view.scrollDOM.addEventListener("scroll", () => {
@@ -74,7 +81,9 @@ export function setupScrollSync(editor: Editor, pane: HTMLElement, enabled: () =
     editor.scrollToLine(Math.round(prev.line + (next.line - prev.line) * ratio));
   });
 
+  /** プレビューをエディタの位置に合わせる（表示の切り替え・カーソル移動・描画の後に使う） */
   return () => {
+    if (!enabled()) return;
     lock("editor");
     syncPreview();
   };

@@ -40,11 +40,12 @@ export interface AnnotatorOptions {
   /** 表示中の MD のパス（未保存なら null） */
   mdPath: () => string | null;
   readBinary: (path: string) => Promise<Uint8Array>;
-  writePng: (path: string, bytes: Uint8Array) => Promise<void>;
   /** ファイルがあるか（焼き込み画像の空いている名前を探すため） */
   exists: (path: string) => Promise<boolean>;
-  /** 貼り付けたが、まだ保存していない画像か（MD からの相対パス。%xx は戻したもの） */
-  isPendingImage: (rel: string) => boolean;
+  /** 保存待ちの画像（貼り付けた画像・焼き込み画像）のバイト列。rel は MD からの相対パスで %xx は戻したもの */
+  pendingBytes: (rel: string) => Uint8Array | null;
+  /** 焼き込み画像を保存待ちに登録する（MD を保存したときに書き出す）。link は MD に書くリンク */
+  addPending: (rel: string, link: string, bytes: Uint8Array) => void;
   /** MD を書き換えた後（エディタを見えるようにするなど） */
   onApplied?: () => void;
 }
@@ -62,6 +63,8 @@ const safeDecode = (s: string) => {
     return s;
   }
 };
+/** リンクに書かれたパス → MD からの相対パス（?# 以降を除き、%xx を戻す。保存待ちの画像のキーと同じ形） */
+const relOf = (link: string) => safeDecode(link.split(/[?#]/)[0]);
 /** リンクに書くパス（空白を含むなら <> で囲む） */
 const linkOf = (s: string) => (/\s/.test(s) ? `<${s}>` : s);
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v));
@@ -494,21 +497,22 @@ export function setupAnnotator(opts: AnnotatorOptions): Annotator {
     const r = opts.editor.imageAtCursor();
     if (!r) return void (await warn("カーソルを画像（![説明](画像のパス)）の行に置いてから開いてください。"));
     if (r.laterImage) return void (await warn("注釈は、行の最後の画像にだけ付けられます。画像を別々の行に分けてください。"));
-    const md = opts.mdPath();
-    if (!md) return void (await warn("先に MD ファイルを保存してください（画像の場所を MD からの相対パスで決めるため）。"));
     const existing = r.annotate ? parseAnnotation(r.annotate) : null;
     if (r.annotate && !existing) return void (await warn("この画像の注釈（<!-- annotate ... -->）を読み込めませんでした。書き方を確認してください。"));
     const src = existing?.src ?? r.src;
     if (hasScheme(src) || src.startsWith("//")) return void (await warn("URL の画像には注釈を付けられません。画像をダウンロードして、相対パスで参照してください。"));
-    // 貼り付けた画像は保存するまでディスクにないので読めない
-    if (opts.isPendingImage(safeDecode(src.split(/[?#]/)[0]))) {
-      return void (await warn("貼り付けた画像がまだ保存されていません。先に Ctrl+S で MD を保存してから開いてください。"));
-    }
-    let bytes: Uint8Array;
-    try {
-      bytes = await opts.readBinary(resolvePath(dirname(md), safeDecode(src.split(/[?#]/)[0])));
-    } catch (err) {
-      return void (await warn(`画像を読み込めませんでした。\n${err}`));
+    // 貼り付けたばかりの画像は、保存前でもメモリにあるものを使う（Excel のように、保存せずに注釈できる）
+    let bytes = opts.pendingBytes(relOf(src));
+    if (!bytes) {
+      const md = opts.mdPath();
+      if (!md) {
+        return void (await warn("この画像は MD からの相対パスで探すため、先に MD を保存してください（貼り付けた画像なら、保存前でも注釈できます）。"));
+      }
+      try {
+        bytes = await opts.readBinary(resolvePath(dirname(md), relOf(src)));
+      } catch (err) {
+        return void (await warn(`画像を読み込めませんでした。\n${err}`));
+      }
     }
     original = new Blob([bytes as BlobPart]);
     let imgSize: Pt;
@@ -556,7 +560,7 @@ export function setupAnnotator(opts: AnnotatorOptions): Annotator {
     const md = opts.mdPath();
     const doc = opts.editor.view.state.doc;
     // 開いている間に MD が書き換わった（外部での変更の再読み込みなど）なら、位置がずれているので書かない
-    if (!md || ref.end > doc.length || doc.sliceString(ref.from, ref.end) !== refText) {
+    if (ref.end > doc.length || doc.sliceString(ref.from, ref.end) !== refText) {
       await warn("注釈エディタを開いている間に MD が変更されたため、適用できませんでした。閉じてからもう一度開いてください。");
       return;
     }
@@ -568,15 +572,17 @@ export function setupAnnotator(opts: AnnotatorOptions): Annotator {
         // 注釈を全部消したら、元画像の参照に戻す（焼き込み画像のファイルは残す）
         text = `![${ref.alt}](${linkOf(annot.src)})${rest}`;
       } else {
-        const abs = (link: string) => resolvePath(dirname(md), safeDecode(link.split(/[?#]/)[0]));
         let baked = bakedLink;
-        // 初めての適用: ディスクにまだない名前を選ぶ（残っている焼き込み画像は、どこかで使われているかもしれないので上書きしない）
+        // 初めての適用: 保存待ちにもディスクにもない名前を選ぶ（残っている焼き込み画像は、どこかで使われているかもしれないので上書きしない）
+        const taken = async (link: string) =>
+          !!opts.pendingBytes(relOf(link)) || (!!md && (await opts.exists(resolvePath(dirname(md), relOf(link)))));
         for (let k = 1; !baked; k++) {
           const candidate = bakedPathOf(annot.src, k);
-          if (!(await opts.exists(abs(candidate)))) baked = candidate;
+          if (!(await taken(candidate))) baked = candidate;
           if (k >= 999) throw new Error("焼き込み画像の空いている名前が見つかりませんでした");
         }
-        await opts.writePng(abs(baked), await bake(original, annot));
+        // ディスクにはまだ書かない（貼り付け画像と同じく、MD を保存したときに書き出す）
+        opts.addPending(relOf(baked), baked, await bake(original, annot));
         text = `![${ref.alt}](${linkOf(baked)})${rest}\n<!-- annotate ${serializeAnnotation(annot)} -->`;
       }
       opts.editor.replaceRange(ref.from, ref.end, text);
