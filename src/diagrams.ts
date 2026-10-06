@@ -18,6 +18,22 @@ function remember(key: string, svg: string) {
   cache.set(key, svg);
 }
 
+/**
+ * mermaid が寸法を測るために一時的に作る要素の置き場。
+ * 指定しないと body の末尾に置かれ、ヘルプ画面（body がグリッド）ではレイアウトが一瞬崩れてちらつくので、
+ * レイアウトに関わらない画面外の固定要素の中で測らせる
+ */
+let sandbox: HTMLElement | null = null;
+function mermaidSandbox(): HTMLElement {
+  if (!sandbox?.isConnected) {
+    sandbox = document.createElement("div");
+    sandbox.setAttribute("aria-hidden", "true");
+    sandbox.style.cssText = "position:fixed;left:-100000px;top:0;width:1600px;visibility:hidden;pointer-events:none";
+    document.body.append(sandbox);
+  }
+  return sandbox;
+}
+
 async function getMermaid(dark: boolean): Promise<Mermaid> {
   mermaidP ??= import("mermaid").then((m) => m.default);
   const mermaid = await mermaidP;
@@ -59,7 +75,7 @@ async function renderOne(kind: string, src: string, dark: boolean): Promise<stri
       const id = `mmd-${++seq}`;
       try {
         // mermaid は strict モードでラベルを自前でサニタイズする
-        return (await mermaid.render(id, src)).svg;
+        return (await mermaid.render(id, src, mermaidSandbox())).svg;
       } finally {
         // 失敗時に body 直下へ残る一時要素を掃除する
         document.getElementById(id)?.remove();

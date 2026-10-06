@@ -117,7 +117,8 @@ function build() {
     )
     .join("");
 
-  // 図は画面に入ったものから描く（ヘルプを開いた直後に全部描くと重いため）
+  // 図は画面に近づいたものから描く（ヘルプを開いた直後に全部描くと重いため）。
+  // 画面に入ってから描くと、ソース表示から図に変わって高さが変わるのが見えてちらつくので、早めに描き始める
   const dark = darkQuery.matches;
   const io = new IntersectionObserver(
     (entries) => {
@@ -127,7 +128,7 @@ function build() {
         void renderDiagrams(e.target, dark, () => true);
       }
     },
-    { root: content, rootMargin: "400px 0px" },
+    { root: content, rootMargin: "1500px 0px" },
   );
   for (const r of content.querySelectorAll(".result")) {
     if (r.querySelector(".diagram")) io.observe(r);
