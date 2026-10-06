@@ -31,6 +31,7 @@ export function createEditor(
   dark: boolean,
   onChange: () => void,
   onPasteImage: PasteImageHandler,
+  onCursorMove: () => void = () => {},
 ): Editor {
   const theme = new Compartment();
   const readOnly = new Compartment();
@@ -62,6 +63,7 @@ export function createEditor(
         }),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !silent) onChange();
+          if (u.selectionSet) onCursorMove();
         }),
       ],
     }),

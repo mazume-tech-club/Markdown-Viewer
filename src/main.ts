@@ -87,6 +87,7 @@ function render(): Promise<void> {
   const scroll = previewPane.scrollTop;
   preview.replaceChildren(tpl.content);
   previewPane.scrollTop = scroll;
+  markCursorLine();
   return renderDiagrams(preview, dark, () => gen === state.renderGen);
 }
 
@@ -139,6 +140,7 @@ const editor = createEditor(
     scheduleRender();
   },
   onPasteImage,
+  () => markCursorLine(),
 );
 const syncPreviewToEditor = setupScrollSync(editor, previewPane, () => state.mode === "split");
 
@@ -162,7 +164,7 @@ function setMode(mode: Mode) {
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]")) {
     b.classList.toggle("active", b.dataset.mode === mode);
   }
-  clearActiveLine();
+  markCursorLine();
   if (mode !== "preview") editor.view.focus();
   if (!cursor) return;
   flushRender();
@@ -185,6 +187,13 @@ function showActiveLine(line: number, offset: number | null) {
 
 function clearActiveLine() {
   for (const el of preview.querySelectorAll(".active-line")) el.classList.remove("active-line");
+}
+
+/** 分割表示では、エディタのカーソルがある箇所をプレビューで色付けする（それ以外は色付けを消す） */
+function markCursorLine() {
+  clearActiveLine();
+  if (state.mode !== "split" || !isActiveLineEnabled()) return;
+  findLineElement(preview, editor.cursorLine())?.classList.add("active-line");
 }
 
 applyActiveLineColor();
@@ -463,7 +472,10 @@ setTheme.addEventListener("change", async () => {
   await setThemePref(setTheme.value as ThemePref);
   updateThemeButton();
 });
-activeLine.addEventListener("change", () => setActiveLineEnabled(activeLine.checked));
+activeLine.addEventListener("change", () => {
+  setActiveLineEnabled(activeLine.checked);
+  markCursorLine();
+});
 activeLineColor.addEventListener("input", () => {
   setActiveLineColor(activeLineColor.value);
   applyActiveLineColor();
