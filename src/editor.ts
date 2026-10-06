@@ -1,5 +1,8 @@
 import { EditorView, basicSetup } from "codemirror";
-import { Compartment, EditorState } from "@codemirror/state";
+import { Compartment, EditorState, Prec } from "@codemirror/state";
+import { keymap } from "@codemirror/view";
+import { indentLess, insertTab } from "@codemirror/commands";
+import { indentUnit } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
@@ -45,6 +48,10 @@ export function createEditor(
         basicSetup,
         markdown({ codeLanguages: languages }),
         EditorView.lineWrapping,
+        // Tab でフォーカスがプレビューへ移らないよう、タブ文字を入れる（範囲選択中は行ごと字下げ）。
+        // Shift+Tab は字下げを戻す。字下げの単位もタブ文字にそろえる
+        indentUnit.of("\t"),
+        Prec.high(keymap.of([{ key: "Tab", run: insertTab, shift: indentLess }])),
         theme.of(dark ? oneDark : []),
         readOnly.of([]),
         EditorView.domEventHandlers({
