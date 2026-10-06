@@ -85,6 +85,12 @@ fn is_dir(path: String) -> bool {
     Path::new(&path).is_dir()
 }
 
+/// ファイルかフォルダがあるか（焼き込み画像の空いている名前を探すため）
+#[tauri::command]
+fn path_exists(path: String) -> bool {
+    Path::new(&path).exists()
+}
+
 /// 作業フォルダを監視し、中身が変わったフォルダの一覧を `folder-changed` で通知する。
 /// 出さないフォルダ（.git・node_modules など）の中の変化は無視する
 #[tauri::command]
@@ -200,6 +206,38 @@ fn write_asset(request: tauri::ipc::Request) -> Result<(), String> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
+    std::fs::write(&target, bytes).map_err(|e| format!("{}: {e}", target.display()))
+}
+
+/// 画像などのバイト列をそのまま返す（注釈の焼き込み用。asset URL だと canvas が汚染されて書き出せないため）
+#[tauri::command]
+fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
+    std::fs::read(&path)
+        .map(tauri::ipc::Response::new)
+        .map_err(|e| format!("{path}: {e}"))
+}
+
+/// 書き出してよいファイルか（注釈を焼き込んだ PNG だけ）
+fn binary_target(path: &str) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    let png = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("png"));
+    if !p.is_absolute() || !png {
+        return Err(format!("書き出せないパスです: {path}"));
+    }
+    Ok(p)
+}
+
+/// 注釈を焼き込んだ PNG を書き出す。本文はバイナリのまま受け取る。
+/// ヘッダ: x-path = 書き出し先の絶対パス（URL エンコード）
+#[tauri::command]
+fn write_binary(request: tauri::ipc::Request) -> Result<(), String> {
+    let target = binary_target(&header(&request, "x-path")?)?;
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("画像データがありません".into());
+    };
     std::fs::write(&target, bytes).map_err(|e| format!("{}: {e}", target.display()))
 }
 
@@ -483,9 +521,12 @@ pub fn run() {
             unwatch_file,
             list_dir,
             is_dir,
+            path_exists,
             watch_folder,
             unwatch_folder,
             write_asset,
+            read_binary,
+            write_binary,
             preview_pdf,
             save_preview_pdf,
             open_help,
@@ -521,6 +562,15 @@ mod tests {
         assert!(asset_target(md, "../x.png").is_err());
         assert!(asset_target(md, r"C:\x.png").is_err());
         assert!(asset_target(md, "").is_err());
+    }
+
+    #[test]
+    fn binary_target_accepts_only_absolute_png() {
+        assert!(binary_target(r"C:\docs\form.annotated.png").is_ok());
+        assert!(binary_target(r"C:\docs\FORM.PNG").is_ok());
+        assert!(binary_target(r"C:\docs\a.md").is_err());
+        assert!(binary_target(r"C:\docs\x.exe").is_err());
+        assert!(binary_target("form.png").is_err());
     }
 
     #[test]

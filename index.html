@@ -13,7 +13,7 @@
       <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
       <button id="btn-copy-path" title="開いているファイルのパスをコピー (Ctrl+Shift+C)">パスをコピー</button>
       <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
-      <button id="btn-builder" title="図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す） (Ctrl+Shift+D)">図</button>
+      <button id="btn-builder" title="図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す）。カーソルが画像の行なら画像の注釈 (Ctrl+Shift+D)">図</button>
       <button id="btn-settings" title="設定 (Ctrl+,)">設定</button>
       <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
       <button id="btn-theme" title="テーマ（自動 / ライト / ダーク）">自動</button>
@@ -116,6 +116,9 @@
           <label class="settings-row" title="オフにすると、更新前に未保存の変更を破棄するか確認します"><input id="keep-draft" type="checkbox" /> 更新時、未保存の変更を再起動後に復元</label>
         </section>
       </div>
+    </div>
+    <div id="preview-menu" class="files-menu" role="menu" hidden>
+      <button role="menuitem" title="矢印・テキスト・枠・番号を画像に重ねる (Ctrl+Shift+A)">注釈を編集…</button>
     </div>
     <div id="open-path" class="quick-input" hidden>
       <div class="quick-input-panel" role="dialog" aria-label="パスで開く">

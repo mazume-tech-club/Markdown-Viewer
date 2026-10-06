@@ -10,12 +10,14 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open as openDialog, save as saveDialog, ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { renderMarkdown } from "./render";
+import { findImageSource, renderMarkdown } from "./render";
 import { fillCached, renderDiagrams } from "./diagrams";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
 import { loadSession, saveSession } from "./session";
 import { setupBuilder } from "./builder/builder";
+import { setupAnnotator } from "./annotator/annotator";
+import { renderAnnotations } from "./annotations";
 import { findLineElement, setupScrollSync } from "./scrollsync";
 import {
   applyActiveLineColor,
@@ -105,6 +107,7 @@ function render(): Promise<void> {
     ? renderMarkdown(text)
     : `<div class="empty-state"><p>Markdown ファイルをドロップするか、<kbd>Ctrl</kbd>+<kbd>O</kbd> で開いてください。</p></div>`;
   rewriteImages(tpl.content);
+  renderAnnotations(tpl.content, resolveImageSrc);
   fillCached(tpl.content, dark);
   const scroll = previewPane.scrollTop;
   preview.replaceChildren(tpl.content);
@@ -113,21 +116,26 @@ function render(): Promise<void> {
   return renderDiagrams(preview, dark, () => gen === state.renderGen);
 }
 
+/**
+ * 画像のパスを表示用の URL にする。相対パスは開いているファイルの場所を基準に asset URL へ、
+ * 貼り付けたが未保存の画像は blob URL へ。URL はそのまま。解決できなければ null
+ */
+function resolveImageSrc(src: string): string | null {
+  if (hasScheme(src) || src.startsWith("//")) return src;
+  // markdown-it は日本語や空白を %xx にするので、戻してから探す
+  const file = safeDecode(src.split(/[?#]/)[0]);
+  const pending = active.pendingImages.get(file);
+  if (pending) return pending.url;
+  return active.path ? convertFileSrc(resolvePath(dirname(active.path), file)) : null;
+}
+
 /** 相対パスの画像を、開いているファイルの場所を基準に asset URL に変換する */
 function rewriteImages(root: ParentNode) {
-  const base = active.path ? dirname(active.path) : null;
   for (const img of root.querySelectorAll("img")) {
     const src = img.getAttribute("src");
     if (!src || hasScheme(src) || src.startsWith("//")) continue;
-    // markdown-it は日本語や空白を %xx にするので、戻してから探す
-    const file = safeDecode(src.split(/[?#]/)[0]);
-    const pending = active.pendingImages.get(file);
-    if (pending) {
-      img.src = pending.url;
-      continue;
-    }
-    if (!base) continue;
-    img.src = convertFileSrc(resolvePath(base, file));
+    const url = resolveImageSrc(src);
+    if (url) img.src = url;
   }
 }
 
@@ -796,7 +804,53 @@ const builder = setupBuilder({
   canEdit: () => !state.updating,
   onApplied: () => state.mode === "preview" && setMode("split"),
 });
-$("btn-builder").addEventListener("click", () => builder.open());
+// 画像の注釈（矢印・テキスト・枠・番号を画像に重ねる）
+const annotator = setupAnnotator({
+  editor,
+  canEdit: () => !state.updating,
+  mdPath: () => active.path,
+  readBinary: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_binary", { path })),
+  writePng: async (path, bytes) => {
+    await invoke("write_binary", bytes, { headers: { "x-path": encodeURIComponent(path) } });
+  },
+  exists: (path) => invoke<boolean>("path_exists", { path }),
+  isPendingImage: (rel) => active.pendingImages.has(rel),
+  onApplied: () => state.mode === "preview" && setMode("split"),
+});
+
+/** 「図」: カーソルが画像の行にあれば注釈エディタ、それ以外は図のビルダー */
+const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
+$("btn-builder").addEventListener("click", () => openDiagramTool());
+
+// プレビューの画像を右クリック →「注釈を編集」
+const previewMenu = $("preview-menu");
+let menuImage: number | null = null;
+preview.addEventListener("contextmenu", (e) => {
+  const img = (e.target as Element).closest<HTMLImageElement>("img[data-img-n]");
+  if (!img) return;
+  e.preventDefault();
+  menuImage = Number(img.dataset.imgN);
+  previewMenu.hidden = false;
+  const r = previewMenu.getBoundingClientRect();
+  previewMenu.style.left = `${Math.min(e.clientX, window.innerWidth - r.width - 4)}px`;
+  previewMenu.style.top = `${Math.min(e.clientY, window.innerHeight - r.height - 4)}px`;
+});
+const closePreviewMenu = () => {
+  previewMenu.hidden = true;
+  menuImage = null;
+};
+window.addEventListener("pointerdown", (e) => !previewMenu.contains(e.target as Node) && closePreviewMenu(), true);
+window.addEventListener("blur", closePreviewMenu);
+previewMenu.addEventListener("click", async () => {
+  const n = menuImage;
+  closePreviewMenu();
+  if (n === null) return;
+  // ソースのその画像にカーソルを移してから開く（エディタ側の位置で書き換えるため）
+  const pos = findImageSource(editor.getText(), n);
+  if (!pos) return void message("この画像の場所を MD の中で見つけられませんでした。", { title: "画像の注釈", kind: "warning" });
+  editor.setCursor(pos.line, pos.ch);
+  await annotator.open();
+});
 
 /** 書き方ヘルプを別ウィンドウで開く（開いていれば前面に出す） */
 async function openHelp() {
@@ -1118,12 +1172,17 @@ window.addEventListener(
       fn();
     };
     // 図のビルダーを開いている間は、入力欄にキーを渡す（Esc で閉じるだけ）
+    if (annotator.isOpen()) {
+      if (e.key === "Escape") run(() => annotator.close());
+      return;
+    }
     if (builder.isOpen()) {
       if (e.key === "Escape") run(() => builder.close());
       return;
     }
     if (!pdfOverlay.hidden && e.key === "Escape") run(() => closePdfPreview());
-    else if (mod && e.shiftKey && key === "d") run(() => builder.open());
+    else if (mod && e.shiftKey && key === "d") run(() => openDiagramTool());
+    else if (mod && e.shiftKey && key === "a") run(() => annotator.open());
     else if (mod && e.shiftKey && key === "c") run(() => copyPath());
     else if (!settingsOverlay.hidden && e.key === "Escape") run(() => closeSettings());
     else if (!openPathOverlay.hidden && e.key === "Escape") run(() => closeOpenPath());
