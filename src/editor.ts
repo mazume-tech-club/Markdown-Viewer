@@ -24,6 +24,24 @@ export interface Editor {
   cursorLine(): number;
   /** カーソルの、表示領域上端からの位置（px）。画面外なら null */
   cursorOffset(): number | null;
+  /** タブ用に、この本文の編集状態（Undo 履歴・カーソル込み）を新しく作る */
+  createState(text: string): EditorState;
+  getState(): EditorState;
+  /** タブの切り替え。テーマと読み取り専用は今の設定で掛け直す */
+  setState(state: EditorState): void;
+  /** カーソルを含むコードブロック（``` / ~~~ で囲まれた範囲。囲みの行も含む）。無ければ null */
+  blockAtCursor(): CodeBlock | null;
+  /** from〜to を置き換え、置き換えた末尾にカーソルを置く */
+  replaceRange(from: number, to: number, text: string): void;
+}
+
+export interface CodeBlock {
+  from: number;
+  to: number;
+  /** 言語名（```c4 の c4）。小文字 */
+  lang: string;
+  /** 囲みの行を除いた中身 */
+  body: string;
 }
 
 /** 画像の貼り付けを受け取り、挿入する Markdown を返す（null なら何もしない） */
@@ -39,11 +57,14 @@ export function createEditor(
   const theme = new Compartment();
   const readOnly = new Compartment();
   let silent = false;
+  let isDark = dark;
+  let isReadOnly = false;
+  const themeExt = () => (isDark ? oneDark : []);
+  const readOnlyExt = () => (isReadOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []);
 
-  const view = new EditorView({
-    parent,
-    state: EditorState.create({
-      doc: "",
+  const createState = (doc: string) =>
+    EditorState.create({
+      doc,
       extensions: [
         basicSetup,
         markdown({ codeLanguages: languages }),
@@ -52,8 +73,8 @@ export function createEditor(
         // Shift+Tab は字下げを戻す。字下げの単位もタブ文字にそろえる
         indentUnit.of("\t"),
         Prec.high(keymap.of([{ key: "Tab", run: insertTab, shift: indentLess }])),
-        theme.of(dark ? oneDark : []),
-        readOnly.of([]),
+        theme.of(themeExt()),
+        readOnly.of(readOnlyExt()),
         EditorView.domEventHandlers({
           paste(e, view) {
             const item = [...(e.clipboardData?.items ?? [])].find(
@@ -73,11 +94,18 @@ export function createEditor(
           if (u.selectionSet) onCursorMove();
         }),
       ],
-    }),
-  });
+    });
+
+  const view = new EditorView({ parent, state: createState("") });
 
   return {
     view,
+    createState,
+    getState: () => view.state,
+    setState(state) {
+      view.setState(state);
+      view.dispatch({ effects: [theme.reconfigure(themeExt()), readOnly.reconfigure(readOnlyExt())] });
+    },
     getText: () => view.state.doc.toString(),
     setText(text) {
       silent = true;
@@ -102,12 +130,12 @@ export function createEditor(
       view.focus();
     },
     setDark(d) {
-      view.dispatch({ effects: theme.reconfigure(d ? oneDark : []) });
+      isDark = d;
+      view.dispatch({ effects: theme.reconfigure(themeExt()) });
     },
     setReadOnly(on) {
-      view.dispatch({
-        effects: readOnly.reconfigure(on ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []),
-      });
+      isReadOnly = on;
+      view.dispatch({ effects: readOnly.reconfigure(readOnlyExt()) });
     },
     topLine() {
       const block = view.lineBlockAtHeight(view.scrollDOM.scrollTop);
@@ -120,6 +148,37 @@ export function createEditor(
     },
     cursorLine() {
       return view.state.doc.lineAt(view.state.selection.main.head).number - 1;
+    },
+    blockAtCursor() {
+      const doc = view.state.doc;
+      const cursor = doc.lineAt(view.state.selection.main.head).number;
+      // 先頭から囲みの開始・終了をたどる（中身に ``` を含む ~~~ ブロックなどがあるため）
+      let open: { line: number; ch: string; len: number; lang: string } | null = null;
+      for (let n = 1; n <= doc.lines; n++) {
+        const text = doc.line(n).text;
+        if (!open) {
+          const m = /^\s{0,3}(`{3,}|~{3,})\s*([\w-]*)/.exec(text);
+          if (m) open = { line: n, ch: m[1][0], len: m[1].length, lang: m[2].toLowerCase() };
+          if (n > cursor) return null;
+          continue;
+        }
+        const close = /^\s{0,3}(`{3,}|~{3,})\s*$/.exec(text);
+        if (!close || close[1][0] !== open.ch || close[1].length < open.len) continue;
+        if (cursor >= open.line && cursor <= n) {
+          const body = open.line + 1 < n ? doc.sliceString(doc.line(open.line + 1).from, doc.line(n - 1).to) : "";
+          return { from: doc.line(open.line).from, to: doc.line(n).to, lang: open.lang, body };
+        }
+        open = null;
+      }
+      return null;
+    },
+    replaceRange(from, to, text) {
+      view.dispatch({
+        changes: { from, to, insert: text },
+        selection: { anchor: from + text.length },
+        scrollIntoView: true,
+      });
+      view.focus();
     },
     cursorOffset() {
       const coords = view.coordsAtPos(view.state.selection.main.head);

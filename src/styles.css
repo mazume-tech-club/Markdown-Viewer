@@ -59,14 +59,59 @@ button {
   cursor: pointer;
 }
 button:hover { background: var(--btn-hover); }
-.filename {
-  flex: 1;
-  text-align: center;
+#toolbar .spacer { flex: 1; }
+
+/* タブ（開いているファイル）。多いときは横にスクロール */
+#tabs {
+  display: flex;
+  align-items: stretch;
+  flex: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  max-width: 220px;
+  padding: 0 4px 0 12px;
+  height: 32px;
   color: var(--muted);
+  border-right: 1px solid var(--border);
+  cursor: default;
+}
+.tab:hover { background: var(--btn-hover); }
+.tab[aria-selected="true"] {
+  color: inherit;
+  background: var(--bg);
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.tab-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.tab-dirty { color: var(--accent); font-weight: bold; }
+.tab-close,
+.tab-new {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 6px;
+  line-height: 20px;
+  border-radius: 4px;
+}
+.tab-close { visibility: hidden; }
+.tab:hover .tab-close,
+.tab[aria-selected="true"] .tab-close { visibility: visible; }
+.tab-close:hover,
+.tab-new:hover { background: var(--btn-hover); color: inherit; }
+.tab-new { flex: none; margin: 0 4px; }
 .segmented {
   display: flex;
   border: 1px solid var(--border);
@@ -253,9 +298,109 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .settings input[type="color"] { width: 32px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
 
 /* 印刷・PDF 出力: プレビューだけを白地で出す */
+/* 図のビルダー（ほぼ全画面のパネル。左にフォーム、右にプレビュー） */
+.builder {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 40%);
+}
+.builder[hidden] { display: none; }
+.builder-panel {
+  display: flex;
+  flex-direction: column;
+  width: calc(100vw - 32px);
+  height: calc(100vh - 32px);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 25%);
+  overflow: hidden;
+}
+.builder-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--border);
+}
+.builder-head .grow { flex: 1; color: var(--muted); text-align: right; }
+.builder-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+.builder-form { overflow: auto; padding: 4px 12px 16px; border-right: 1px solid var(--border); }
+.builder-side { display: flex; flex-direction: column; min-height: 0; }
+.builder-preview { flex: 1; overflow: auto; padding: 12px; max-width: none; }
+.builder-preview .diagram { margin: 0; }
+.builder-preview g.edge,
+.builder-preview g.node,
+.builder-preview g.cluster { cursor: pointer; }
+/* 選んでいる線・箱 */
+.builder-preview g.b-picked path,
+.builder-preview g.b-picked polygon:not([fill="white"]) { stroke: var(--accent); stroke-width: 3; }
+.builder-preview g.b-picked text { font-weight: bold; }
+.b-select {
+  flex: none;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--toolbar);
+}
+.b-select-title { margin-bottom: 6px; }
+.b-select-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; }
+.b-code { flex: none; border-top: 1px solid var(--border); padding: 4px 12px; }
+.b-code summary { cursor: pointer; color: var(--muted); }
+.b-code pre {
+  max-height: 30vh;
+  overflow: auto;
+  margin: 6px 0;
+  padding: 8px;
+  font: 12px "Cascadia Code", Consolas, "BIZ UDGothic", monospace;
+  background: var(--toolbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  user-select: text;
+}
+.b-section h4 { margin: 12px 0 6px; font-size: 12px; color: var(--muted); }
+.b-grid { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+.b-grid label { display: flex; align-items: center; gap: 6px; }
+.b-table { border-collapse: collapse; width: 100%; }
+.b-table th { font-weight: normal; font-size: 11px; color: var(--muted); text-align: left; padding: 2px 3px; white-space: nowrap; }
+.b-table td { padding: 2px 3px; vertical-align: middle; }
+.b-table tr.selected td { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.b-table input[type="text"],
+.b-table select { width: 100%; min-width: 60px; }
+.b-table .b-id { min-width: 70px; font-family: "Cascadia Code", Consolas, monospace; }
+.b-num { width: 64px; }
+.b-arrow { color: var(--muted); text-align: center; }
+.b-actions { white-space: nowrap; }
+.b-actions button,
+.b-dir button { padding: 2px 7px; white-space: nowrap; }
+.b-dir { flex-wrap: nowrap; }
+.b-add { display: flex; gap: 6px; margin-top: 6px; }
+.b-note { color: var(--muted); font-size: 12px; margin: 6px 0; }
+.b-invalid { outline: 2px solid var(--error); }
+.builder input[type="text"],
+.builder input[type="number"],
+.builder select {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+.builder input:disabled { opacity: 0.4; }
+
 @media print {
   @page { margin: 15mm 12mm; }
-  #toolbar, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings { display: none !important; }
+  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings { display: none !important; }
   html, body { height: auto; overflow: visible; background: #fff; }
   body, #main { display: block; }
   #preview-pane { overflow: visible; visibility: visible !important; }

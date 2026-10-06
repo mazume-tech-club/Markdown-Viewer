@@ -1,6 +1,9 @@
 // C4 図の書き方（Mermaid / C4-PlantUML 互換のマクロ）を Graphviz の DOT に変換する。
 // Mermaid の C4 は線の経路や配置を制御できないので、レイアウトは Graphviz に任せ、
-// Rel_R / Lay_D などの方向指定で配置を誘導できるようにする。
+// Rel_R / Lay_D などの方向指定で配置を誘導できるようにする。解析は c4model.ts。
+
+import { BOUNDARY_TYPES, parseC4, walk, type C4Element, type C4Model, type C4Node, type Dir } from "./c4model";
+
 
 interface ElementKind {
   /** 種別の表示（[Container: 技術] の「Container」） */
@@ -11,8 +14,6 @@ interface ElementKind {
   db?: boolean;
   /** 人のアイコンを付けるか（Person / Person_Ext） */
   person?: boolean;
-  /** 引数が (id, 名前, 技術, 説明) か（false なら (id, 名前, 説明)） */
-  techn: boolean;
 }
 
 // 色は C4-PlantUML の標準に合わせる
@@ -26,63 +27,21 @@ const COMPONENT = { bg: "#85bbf0", border: "#78a8d8", font: "#000000" };
 const COMPONENT_EXT = { bg: "#cccccc", border: "#bfbfbf", font: "#000000" };
 
 const ELEMENTS: Record<string, ElementKind> = {
-  Person: { type: "Person", ...PERSON, person: true, techn: false },
-  Person_Ext: { type: "External Person", ...PERSON_EXT, person: true, techn: false },
-  System: { type: "Software System", ...SYSTEM, techn: false },
-  SystemDb: { type: "Software System", ...SYSTEM, db: true, techn: false },
-  System_Ext: { type: "External System", ...SYSTEM_EXT, techn: false },
-  SystemDb_Ext: { type: "External System", ...SYSTEM_EXT, db: true, techn: false },
-  Container: { type: "Container", ...CONTAINER, techn: true },
-  ContainerDb: { type: "Container", ...CONTAINER, db: true, techn: true },
-  Container_Ext: { type: "External Container", ...CONTAINER_EXT, techn: true },
-  ContainerDb_Ext: { type: "External Container", ...CONTAINER_EXT, db: true, techn: true },
-  Component: { type: "Component", ...COMPONENT, techn: true },
-  ComponentDb: { type: "Component", ...COMPONENT, db: true, techn: true },
-  Component_Ext: { type: "External Component", ...COMPONENT_EXT, techn: true },
-  ComponentDb_Ext: { type: "External Component", ...COMPONENT_EXT, db: true, techn: true },
+  Person: { type: "Person", ...PERSON, person: true },
+  Person_Ext: { type: "External Person", ...PERSON_EXT, person: true },
+  System: { type: "Software System", ...SYSTEM },
+  SystemDb: { type: "Software System", ...SYSTEM, db: true },
+  System_Ext: { type: "External System", ...SYSTEM_EXT },
+  SystemDb_Ext: { type: "External System", ...SYSTEM_EXT, db: true },
+  Container: { type: "Container", ...CONTAINER },
+  ContainerDb: { type: "Container", ...CONTAINER, db: true },
+  Container_Ext: { type: "External Container", ...CONTAINER_EXT },
+  ContainerDb_Ext: { type: "External Container", ...CONTAINER_EXT, db: true },
+  Component: { type: "Component", ...COMPONENT },
+  ComponentDb: { type: "Component", ...COMPONENT, db: true },
+  Component_Ext: { type: "External Component", ...COMPONENT_EXT },
+  ComponentDb_Ext: { type: "External Component", ...COMPONENT_EXT, db: true },
 };
-
-/** 囲み → 種別の表示（空なら出さない） */
-const BOUNDARIES: Record<string, string> = {
-  Boundary: "",
-  System_Boundary: "System",
-  Container_Boundary: "Container",
-  Enterprise_Boundary: "Enterprise",
-};
-
-/** 線の方向。null は図全体の向き（LAYOUT_*）に従う */
-type Dir = "D" | "U" | "R" | "L" | null;
-const RELS: Record<string, { dir: Dir; both?: boolean; invis?: boolean }> = {
-  Rel: { dir: null },
-  Rel_D: { dir: "D" },
-  Rel_Down: { dir: "D" },
-  Rel_U: { dir: "U" },
-  Rel_Up: { dir: "U" },
-  Rel_R: { dir: "R" },
-  Rel_Right: { dir: "R" },
-  Rel_L: { dir: "L" },
-  Rel_Left: { dir: "L" },
-  BiRel: { dir: null, both: true },
-  BiRel_D: { dir: "D", both: true },
-  BiRel_U: { dir: "U", both: true },
-  BiRel_R: { dir: "R", both: true },
-  BiRel_L: { dir: "L", both: true },
-  Lay_D: { dir: "D", invis: true },
-  Lay_U: { dir: "U", invis: true },
-  Lay_R: { dir: "R", invis: true },
-  Lay_L: { dir: "L", invis: true },
-};
-
-/** Mermaid / C4-PlantUML から貼り替えても壊れないよう、黙って無視するマクロ */
-const IGNORED = new Set([
-  "UpdateRelStyle",
-  "UpdateLayoutConfig",
-  "UpdateBoundaryStyle",
-  "SHOW_LEGEND",
-  "LAYOUT_WITH_LEGEND",
-  "HIDE_STEREOTYPE",
-  "SHOW_PERSON_OUTLINE",
-]);
 
 const FONT = "Yu Gothic UI,Meiryo,sans-serif";
 /** 人のアイコン用に、ラベルの上に空ける行の高さ（pt） */
@@ -91,31 +50,6 @@ const PERSON_ICON_SPACE = 22;
 const PERSON_CLASS = "c4person";
 /** 説明を折り返す幅（半角 1・全角 2 で数える）。Graphviz の文字幅の見積もりが全角で少し狭いので控えめにする */
 const WRAP = 26;
-
-interface Args {
-  pos: string[];
-  named: Record<string, string>;
-}
-
-interface Node {
-  id: string;
-  kind: ElementKind;
-  label: string;
-  techn: string;
-  descr: string;
-  style: Record<string, string>;
-}
-
-interface Edge {
-  from: string;
-  to: string;
-  label: string;
-  techn: string;
-  dir: Dir;
-  both: boolean;
-  invis: boolean;
-  line: number;
-}
 
 const htmlEsc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -159,149 +93,28 @@ function textWidth(text: string, size: number): number {
   return pt / 72;
 }
 
-/** カンマ区切りの引数を分ける（"…" 内のカンマは区切らない。$key="値" は名前付き） */
-function parseArgs(s: string): Args {
-  const parts: string[] = [];
-  let cur = "";
-  let inStr = false;
-  for (const ch of s) {
-    if (ch === '"') inStr = !inStr;
-    if (ch === "," && !inStr) {
-      parts.push(cur);
-      cur = "";
-    } else cur += ch;
-  }
-  if (cur.trim() || parts.length) parts.push(cur);
-  const unquote = (v: string) => {
-    const t = v.trim();
-    return t.length >= 2 && t.startsWith('"') && t.endsWith('"') ? t.slice(1, -1) : t;
-  };
-  const args: Args = { pos: [], named: {} };
-  for (const p of parts) {
-    const m = /^\s*\$(\w+)\s*=(.*)$/.exec(p);
-    if (m) args.named[m[1]] = unquote(m[2]);
-    else args.pos.push(unquote(p));
-  }
-  return args;
-}
+/** 線（Rel / Lay）の SVG 上の id。プレビューで線をクリックしたときに、どの関係かを知るため */
+export const relSvgId = (index: number) => `c4rel${index}`;
 
 /** C4 のソースを DOT に変換する。書き方に誤りがあれば「N 行目: …」の Error を投げる */
 export function c4ToDot(src: string): string {
-  let title = "";
-  let rankdir = "TB";
-  const raw: string[] = [];
-  const nodes = new Map<string, Node>();
-  const edges: Edge[] = [];
-  const styles: { id: string; style: Record<string, string>; line: number }[] = [];
-  // 囲みの入れ子。各段は DOT の本文（ノード宣言・サブグラフ）
-  const root: string[] = [];
-  const stack: { body: string[]; id: string; first: string | null }[] = [];
+  return modelToDot(parseC4(src, true));
+}
+
+/** 読み込み済みの C4 の図を DOT に変換する */
+export function modelToDot(model: C4Model): string {
+  const rankdir = model.layout;
+  const elements = new Map<string, C4Element>();
   /** 囲みの id → 中の最初の要素（囲みへの線を引くため） */
-  const boundaries = new Map<string, { first: string | null }>();
-  const body = () => (stack.length ? stack[stack.length - 1].body : root);
-
-  const srcLines = src.replace(/\r\n/g, "\n").split("\n");
-  srcLines.forEach((rawLine, i) => {
-    const no = i + 1;
-    const fail = (msg: string): never => {
-      throw new Error(`${no} 行目: ${msg}`);
-    };
-    const line = rawLine.trim();
-    if (!line || line.startsWith("%%") || line.startsWith("'")) return;
-    if (/^C4(Context|Container|Component|Dynamic|Deployment)\b/.test(line)) return;
-    if (/^@(start|end)uml\b/.test(line) || /^!include/.test(line)) return;
-
-    const t = /^title\s+(.*)$/.exec(line);
-    if (t) {
-      title = t[1].trim();
-      return;
-    }
-    const d = /^dot:\s*(.*)$/.exec(line);
-    if (d) {
-      raw.push(d[1]);
-      return;
-    }
-    if (line === "}") {
-      const b = stack.pop() ?? fail("対応する { がありません");
-      body().push(`subgraph ${quote(`cluster_${b.id}`)} {`, ...b.body.map((l) => `  ${l}`), "}");
-      return;
-    }
-
-    const m = /^(\w+)\s*(?:\((.*)\))?\s*(\{)?$/.exec(line) ?? fail(`読み取れません: ${line}`);
-    const name = m[1];
-    const open = m[3] === "{";
-    const args = parseArgs(m[2] ?? "");
-
-    if (name === "LAYOUT_TOP_DOWN") {
-      rankdir = "TB";
-      return;
-    }
-    if (name === "LAYOUT_LEFT_RIGHT" || name === "LAYOUT_LANDSCAPE") {
-      rankdir = "LR";
-      return;
-    }
-    if (IGNORED.has(name)) return;
-
-    const kind = ELEMENTS[name];
-    if (kind) {
-      const [id, label = id, a3 = "", a4 = ""] = args.pos;
-      if (!id) fail(`${name} に id がありません`);
-      if (nodes.has(id)) fail(`id「${id}」が重複しています`);
-      const techn = args.named.techn ?? (kind.techn ? a3 : "");
-      const descr = args.named.descr ?? (kind.techn ? a4 : a3);
-      nodes.set(id, { id, kind, label, techn, descr, style: {} });
-      body().push(`${quote(id)};`);
-      for (const b of stack) b.first ??= id;
-      if (open) fail(`${name} は { で囲めません`);
-      return;
-    }
-
-    if (name in BOUNDARIES) {
-      const [id, label = id, type = BOUNDARIES[name]] = args.pos;
-      if (!id) fail(`${name} に id がありません`);
-      if (!open) fail(`${name} の後ろに { が必要です`);
-      const b = { body: [] as string[], id, first: null as string | null };
-      boundaries.set(id, b);
-      const typeLine = type ? `<br/><font point-size="10">[${htmlEsc(type)}]</font>` : "";
-      b.body.push(
-        `label=<<b>${lines(label)}</b>${typeLine}>; labeljust=l; fontsize=12; style="dashed,rounded"; color="#444444"; fontcolor="#444444";`,
-      );
-      stack.push(b);
-      return;
-    }
-
-    const rel = RELS[name];
-    if (rel) {
-      const [from, to, label = "", techn = ""] = args.pos;
-      if (!from || !to) fail(`${name} には元と先の id が必要です`);
-      edges.push({
-        from,
-        to,
-        label: args.named.label ?? label,
-        techn: args.named.techn ?? techn,
-        ...rel,
-        both: !!rel.both,
-        invis: !!rel.invis,
-        line: no,
-      });
-      return;
-    }
-
-    if (name === "UpdateElementStyle") {
-      const [id] = args.pos;
-      if (!id) fail("UpdateElementStyle に id がありません");
-      styles.push({ id, style: args.named, line: no });
-      return;
-    }
-
-    fail(`未対応の書き方です: ${name}`);
-  });
-  if (stack.length) throw new Error(`囲み「${stack[stack.length - 1].id}」の } がありません`);
-
-  for (const s of styles) {
-    const n = nodes.get(s.id);
-    if (!n) throw new Error(`${s.line} 行目: id「${s.id}」の要素がありません`);
-    Object.assign(n.style, s.style);
+  const firstIn = new Map<string, string | null>();
+  for (const n of walk(model.nodes)) {
+    if (n.type === "element") elements.set(n.id, n);
+    else firstIn.set(n.id, [...walk(n.children)].find((c) => c.type === "element")?.id ?? null);
+  }
+  const styles = new Map<string, Record<string, string>>();
+  for (const s of model.styles) {
+    if (!elements.has(s.id)) throw new Error(`${s.line} 行目: id「${s.id}」の要素がありません`);
+    styles.set(s.id, { ...styles.get(s.id), ...s.props });
   }
 
   const out: string[] = [
@@ -310,20 +123,22 @@ export function c4ToDot(src: string): string {
     `  node [fontname=${quote(FONT)}, fontsize=12, margin="0.25,0.12"];`,
     `  edge [fontname=${quote(FONT)}, fontsize=10, color="#707070", fontcolor="#555555", arrowsize=0.8];`,
   ];
-  if (title) out.push(`  label=<<b>${lines(title)}</b>>; labelloc=t; fontsize=16;`);
-  for (const r of raw) out.push(`  ${r}`);
+  if (model.title) out.push(`  label=<<b>${lines(model.title)}</b>>; labelloc=t; fontsize=16;`);
+  for (const r of model.dot) out.push(`  ${r}`);
 
-  for (const n of nodes.values()) {
-    const type = n.techn ? `${n.kind.type}: ${n.techn}` : n.kind.type;
+  for (const n of elements.values()) {
+    const kind = ELEMENTS[n.macro];
+    const style = styles.get(n.id) ?? {};
+    const type = n.techn ? `${kind.type}: ${n.techn}` : kind.type;
     let label = `<b>${lines(n.label)}</b><br/><font point-size="9">[${lines(type)}]</font>`;
     if (n.descr) label += `<br/><br/>${lines(n.descr, WRAP)}`;
     // 人は上に空行を入れておき、描画後に drawPersonIcons でそこへアイコンを描く
-    if (n.kind.person) label = `<font point-size="${PERSON_ICON_SPACE}"> </font><br/>${label}`;
-    const cls = n.kind.person ? `, class="${PERSON_CLASS}"` : "";
-    const bg = n.style.bgColor ?? n.kind.bg;
-    const border = n.style.borderColor ?? n.kind.border;
-    const font = n.style.fontColor ?? n.kind.font;
-    const shape = n.kind.db ? `shape=cylinder, style=filled` : `shape=box, style="rounded,filled"`;
+    if (kind.person) label = `<font point-size="${PERSON_ICON_SPACE}"> </font><br/>${label}`;
+    const cls = kind.person ? `, class="${PERSON_CLASS}"` : "";
+    const bg = style.bgColor ?? kind.bg;
+    const border = style.borderColor ?? kind.border;
+    const font = style.fontColor ?? kind.font;
+    const shape = kind.db ? `shape=cylinder, style=filled` : `shape=box, style="rounded,filled"`;
     // 最小幅 = 一番長い行 + 左右の余白（margin 0.25 × 2）
     const widths = [
       ...n.label.split("\\n").map((s) => textWidth(s, 12) * 1.1),
@@ -335,13 +150,31 @@ export function c4ToDot(src: string): string {
       `  ${quote(n.id)} [${shape}${cls}, width=${width}, fillcolor=${quote(bg)}, color=${quote(border)}, fontcolor=${quote(font)}, label=<${label}>];`,
     );
   }
-  out.push(...root.map((l) => `  ${l}`));
+
+  // 囲みの入れ子（ノードの参照とサブグラフ）
+  const tree = (nodes: C4Node[], indent: string) => {
+    for (const n of nodes) {
+      if (n.type === "element") {
+        out.push(`${indent}${quote(n.id)};`);
+        continue;
+      }
+      const type = n.typeLabel ?? BOUNDARY_TYPES[n.macro];
+      const typeLine = type ? `<br/><font point-size="10">[${htmlEsc(type)}]</font>` : "";
+      out.push(`${indent}subgraph ${quote(`cluster_${n.id}`)} {`);
+      out.push(
+        `${indent}  label=<<b>${lines(n.label)}</b>${typeLine}>; labeljust=l; fontsize=12; style="dashed,rounded"; color="#444444"; fontcolor="#444444";`,
+      );
+      tree(n.children, `${indent}  `);
+      out.push(`${indent}}`);
+    }
+  };
+  tree(model.nodes, "  ");
 
   /** 線の端：要素ならその id、囲みなら中の最初の要素（枠で止める） */
   const end = (id: string, line: number): { node: string; cluster?: string } => {
-    if (nodes.has(id)) return { node: id };
-    const b = boundaries.get(id);
-    if (b?.first) return { node: b.first, cluster: `cluster_${id}` };
+    if (elements.has(id)) return { node: id };
+    const first = firstIn.get(id);
+    if (first) return { node: first, cluster: `cluster_${id}` };
     throw new Error(`${line} 行目: id「${id}」の要素がありません`);
   };
 
@@ -349,14 +182,14 @@ export function c4ToDot(src: string): string {
   // 縦並び（TB）なら D/U が段、横並び（LR）なら R/L が段になる
   const along = (dir: Dir) =>
     dir === null || (rankdir === "TB" ? dir === "D" || dir === "U" : dir === "R" || dir === "L");
-  for (const e of edges) {
+  model.rels.forEach((e, i) => {
     const a = end(e.from, e.line);
     const b = end(e.to, e.line);
     // U / L は逆向きの辺にして元を後ろの段（または右・下）に置き、矢印は dir=back で元から先へ向ける
     const reverse = e.dir === "U" || e.dir === "L";
     const [tail, head] = reverse ? [b, a] : [a, b];
     const attrs: string[] = [];
-    if (e.invis) attrs.push("style=invis");
+    if (e.lay) attrs.push("style=invis");
     else {
       let label = e.label ? lines(e.label) : "";
       if (e.techn) label += `${label ? "<br/>" : ""}<font point-size="9">[${lines(e.techn)}]</font>`;
@@ -366,9 +199,10 @@ export function c4ToDot(src: string): string {
     }
     if (tail.cluster) attrs.push(`ltail=${quote(tail.cluster)}`);
     if (head.cluster) attrs.push(`lhead=${quote(head.cluster)}`);
-    out.push(`  ${quote(tail.node)} -> ${quote(head.node)}${attrs.length ? ` [${attrs.join(", ")}]` : ""};`);
+    attrs.push(`id="${relSvgId(i)}"`);
+    out.push(`  ${quote(tail.node)} -> ${quote(head.node)} [${attrs.join(", ")}];`);
     if (!along(e.dir)) out.push(`  { rank=same; ${quote(tail.node)}; ${quote(head.node)}; }`);
-  }
+  });
   out.push("}");
   return out.join("\n");
 }

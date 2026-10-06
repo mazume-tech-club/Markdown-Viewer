@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Mutex,
     time::Duration,
@@ -14,9 +15,9 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[derive(Default)]
 struct LaunchFile(Mutex<Option<String>>);
 
-/// 現在監視中のファイル。別ファイルを開いたら差し替える
+/// 監視中のファイル（タブごと）。キーはフロントエンドが渡したパス
 #[derive(Default)]
-struct WatchState(Mutex<Option<Debouncer<RecommendedWatcher>>>);
+struct WatchState(Mutex<HashMap<String, Debouncer<RecommendedWatcher>>>);
 
 /// 直近に作った PDF プレビューの一時ファイル
 #[derive(Default)]
@@ -335,9 +336,15 @@ fn watch_file(app: AppHandle, state: State<WatchState>, path: String) -> Result<
         .watch(&dir, RecursiveMode::NonRecursive)
         .map_err(|e| e.to_string())?;
 
-    // 古い Debouncer は drop されて監視が止まる
-    *state.0.lock().unwrap() = Some(debouncer);
+    // 同じパスの古い Debouncer は drop されて監視が止まる
+    state.0.lock().unwrap().insert(path, debouncer);
     Ok(())
+}
+
+/// ファイルの監視をやめる（タブを閉じたとき）
+#[tauri::command]
+fn unwatch_file(state: State<WatchState>, path: String) {
+    state.0.lock().unwrap().remove(&path);
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -368,6 +375,7 @@ pub fn run() {
             write_file,
             initial_file,
             watch_file,
+            unwatch_file,
             write_asset,
             preview_pdf,
             save_preview_pdf,

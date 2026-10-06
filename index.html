@@ -11,10 +11,11 @@
       <button id="btn-open" title="開く (Ctrl+O)">開く</button>
       <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
       <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
+      <button id="btn-builder" title="図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す） (Ctrl+Shift+D)">図</button>
       <button id="btn-settings" title="設定 (Ctrl+,)">設定</button>
       <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
       <button id="btn-theme" title="テーマ（自動 / ライト / ダーク）">自動</button>
-      <span id="filename" class="filename"></span>
+      <span class="spacer"></span>
       <button id="zoom-label" class="zoom-label" title="ズーム（Ctrl+ホイール / Ctrl+＋− / クリックで 100%）">100%</button>
       <div class="segmented" role="group" aria-label="表示モード">
         <button data-mode="editor" title="エディタのみ (Ctrl+1)">編集</button>
@@ -22,6 +23,7 @@
         <button data-mode="preview" title="プレビューのみ (Ctrl+3)">プレビュー</button>
       </div>
     </header>
+    <nav id="tabs" role="tablist" aria-label="開いているファイル"></nav>
     <div id="banner" class="banner" hidden>
       <span>ファイルが外部で変更されました。編集中の内容は未保存です。</span>
       <button id="banner-reload">再読み込み</button>
