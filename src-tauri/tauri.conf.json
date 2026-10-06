@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Markdown Preview",
   "mainBinaryName": "markdown-preview",
-  "version": "1.3.1",
+  "version": "1.4.0",
   "identifier": "jp.asuzacgroup.markdownpreview",
   "build": {
     "frontendDist": "../dist",
