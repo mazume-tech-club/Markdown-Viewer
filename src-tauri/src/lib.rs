@@ -404,6 +404,11 @@ mod tests {
             asset_target(md, "assets/x.png").unwrap(),
             Path::new(r"C:\docs\assets\x.png")
         );
+        // 貼り付け画像は「md の名前.assets」に置く（空白・日本語を含んでもよい）
+        assert_eq!(
+            asset_target(Path::new(r"C:\docs\設計 書.md"), "設計 書.assets/image-1.png").unwrap(),
+            Path::new(r"C:\docs\設計 書.assets\image-1.png")
+        );
         assert!(asset_target(md, "../x.png").is_err());
         assert!(asset_target(md, r"C:\x.png").is_err());
         assert!(asset_target(md, "").is_err());

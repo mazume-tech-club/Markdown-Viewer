@@ -66,7 +66,7 @@
 ~~~~
 
 ## 画像
-相対パスは md ファイルの場所が基準。エディタで Ctrl+V するとクリップボードの画像を `assets/` に保存して挿入できる。
+相対パスは md ファイルの場所が基準。エディタで Ctrl+V するとクリップボードの画像を「md の名前.assets」フォルダに保存して挿入できる。
 ~~~~example
 ![青い四角](data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAAAgCAIAAABiouoDAAAARElEQVR42u3QQQkAAAgEsPsa1cqmsYF/YbAES/VwiAJBggQJEiRIkCAECRIkSJAgQYIQJEiQIEGCBAlCkCBBggQJ+msB0PGQ4iFSMpIAAAAASUVORK5CYII=)
 
@@ -781,8 +781,9 @@ Rel_R(a, b, "連携")
 ~~~~example
 1. スクリーンショットなどをクリップボードにコピー
 2. エディタ（編集 / 分割モード）で **Ctrl+V**
-3. `![](assets/image-日時.png)` が挿入される
-4. **Ctrl+S** で保存すると、md と同じフォルダの `assets/` に画像が書き出される
+3. `![](設計書.assets/image-日時.png)` が挿入される（md が `設計書.md` のとき）
+4. **Ctrl+S** で保存すると、md と同じフォルダの `設計書.assets/` に画像が書き出される（md ごとに別のフォルダになる）
+5. まだ保存していない無題の文書では仮に `untitled.assets/` と入り、初めて保存したときに保存した名前のフォルダへ書き換わる
 ~~~~
 
 ## PDF に出力する

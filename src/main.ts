@@ -116,20 +116,37 @@ function rewriteImages(root: ParentNode) {
   for (const img of root.querySelectorAll("img")) {
     const src = img.getAttribute("src");
     if (!src || hasScheme(src) || src.startsWith("//")) continue;
-    const pending = active.pendingImages.get(src);
+    // markdown-it は日本語や空白を %xx にするので、戻してから探す
+    const file = safeDecode(src.split(/[?#]/)[0]);
+    const pending = active.pendingImages.get(file);
     if (pending) {
       img.src = pending.url;
       continue;
     }
     if (!base) continue;
-    const file = decodeURIComponent(src.split(/[?#]/)[0]);
     img.src = convertFileSrc(resolvePath(base, file));
   }
 }
 
 // ---------- エディタ ----------
 
-const IMAGE_DIR = "assets";
+const safeDecode = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
+/**
+ * 貼り付けた画像を置くフォルダ（md と同じ場所の「md の名前.assets」）。
+ * まだ保存していない無題の文書は仮に untitled.assets とし、保存するときに正しい名前へ付け替える
+ */
+const assetDirOf = (mdPath: string | null) => `${mdPath ? basename(mdPath).replace(/\.[^.]+$/, "") : "untitled"}.assets`;
+
+/** Markdown のリンクに書くパス（空白と括弧があるとリンクが途切れるので %xx にする） */
+const mdLink = (rel: string) => rel.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
+
 const IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
@@ -146,10 +163,11 @@ async function onPasteImage(file: File): Promise<string> {
   const d = new Date();
   const p2 = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-  let rel = `${IMAGE_DIR}/image-${stamp}.${ext}`;
-  for (let i = 2; pendingImages.has(rel); i++) rel = `${IMAGE_DIR}/image-${stamp}-${i}.${ext}`;
+  const dir = assetDirOf(active.path);
+  let rel = `${dir}/image-${stamp}.${ext}`;
+  for (let i = 2; pendingImages.has(rel); i++) rel = `${dir}/image-${stamp}-${i}.${ext}`;
   pendingImages.set(rel, { bytes: new Uint8Array(await file.arrayBuffer()), url: URL.createObjectURL(file) });
-  return `![](${rel})`;
+  return `![](${mdLink(rel)})`;
 }
 
 const editor = createEditor(
@@ -542,13 +560,36 @@ async function closeTab(tab: Tab) {
 async function writePendingImages(tab: Tab, mdPath: string, text: string): Promise<number> {
   let count = 0;
   for (const [rel, img] of tab.pendingImages) {
-    if (!text.includes(`](${rel}`)) continue;
+    if (!text.includes(`](${mdLink(rel)}`)) continue;
     await invoke("write_asset", img.bytes, {
       headers: { "x-md": encodeURIComponent(mdPath), "x-rel": encodeURIComponent(rel) },
     });
     count++;
   }
   return count;
+}
+
+/**
+ * まだ書き出していない貼り付け画像の置き場所を dir に付け替え、本文のリンクも書き換える。
+ * 無題の文書を初めて保存したときや、画像を保存する前に名前を付けて保存したとき用。書き換えた本文を返す
+ */
+function moveImagesTo(tab: Tab, dir: string): string {
+  let text = textOf(tab);
+  const moved = new Map<string, PendingImage>();
+  let changed = false;
+  for (const [rel, img] of tab.pendingImages) {
+    const next = `${dir}/${rel.slice(rel.lastIndexOf("/") + 1)}`;
+    if (next !== rel) {
+      text = text.split(`](${mdLink(rel)}`).join(`](${mdLink(next)}`);
+      changed = true;
+    }
+    moved.set(next, img);
+  }
+  if (changed) {
+    tab.pendingImages = moved;
+    setTabText(tab, text);
+  }
+  return text;
 }
 
 /** 表示中のタブを保存する */
@@ -564,9 +605,9 @@ async function saveFile(saveAs = false): Promise<boolean> {
     if (!picked) return false;
     path = picked;
   }
-  const text = textOf(tab);
+  const text = moveImagesTo(tab, assetDirOf(path));
   try {
-    // 貼り付けた画像を md と同じ場所の assets/ に書き出す（本文から消したものは捨てる）
+    // 貼り付けた画像を md と同じ場所の「md の名前.assets」に書き出す（本文から消したものは捨てる）
     const written = await writePendingImages(tab, path, text);
     await invoke("write_file", { path, content: text });
     const changedPath = !oldPath || !samePath(path, oldPath);
@@ -744,7 +785,7 @@ interface Draft {
 /** 本文で参照されている、保存待ちの貼り付け画像があるか */
 const hasUnsavedImages = (tab: Tab) => {
   const text = textOf(tab);
-  return [...tab.pendingImages.keys()].some((rel) => text.includes(`](${rel}`));
+  return [...tab.pendingImages.keys()].some((rel) => text.includes(`](${mdLink(rel)}`));
 };
 
 async function beforeUpdate(): Promise<boolean> {
