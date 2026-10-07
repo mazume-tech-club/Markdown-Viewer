@@ -179,6 +179,24 @@ button:hover { background: var(--btn-hover); }
 }
 .markdown-body pre code { font-family: "Cascadia Code", Consolas, "BIZ UDGothic", monospace; }
 .markdown-body .hljs { background: transparent; padding: 0; }
+/* コードラベル（```bash や ```ruby:qiita.rb の言語名・ファイル名）。コードブロックの左上に付ける */
+.markdown-body .code-block { margin-bottom: 16px; }
+.markdown-body .code-block > pre { margin-bottom: 0; border-top-left-radius: 0; }
+.markdown-body .code-label {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 10px;
+  border-radius: 6px 6px 0 0;
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  font-family: "Cascadia Code", Consolas, "BIZ UDGothic", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  user-select: none;
+}
 /* 編集位置のハイライト。背景色（コードブロックや表の縞）を残すよう、画像として上に重ねる */
 .markdown-body .active-line {
   --active-line-bg: color-mix(in srgb, var(--active-line) 22%, transparent);
@@ -595,7 +613,7 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
   body, #workspace, #main { display: block; }
   #preview-pane { overflow: visible; visibility: visible !important; }
   .markdown-body { max-width: none; padding: 0; zoom: 1 !important; }
-  .diagram, .markdown-body pre, .markdown-body table, .markdown-body img, .annotated { break-inside: avoid; }
+  .diagram, .markdown-body .code-block, .markdown-body pre, .markdown-body table, .markdown-body img, .annotated { break-inside: avoid; }
   .markdown-body h1, .markdown-body h2, .markdown-body h3 { break-after: avoid; }
   .markdown-body .active-line { background-image: none; box-shadow: none; }
 }

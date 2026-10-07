@@ -209,6 +209,45 @@ fn write_asset(request: tauri::ipc::Request) -> Result<(), String> {
     std::fs::write(&target, bytes).map_err(|e| format!("{}: {e}", target.display()))
 }
 
+/// md の隣の「md の名前.assets」フォルダ
+fn assets_dir_of(md: &Path) -> Result<PathBuf, String> {
+    let stem = md.file_stem().ok_or("md の名前がありません")?;
+    Ok(md.with_file_name(format!("{}.assets", stem.to_string_lossy())))
+}
+
+/// エクスポート先のフォルダを用意する。前回のエクスポートの「md の名前.assets」が残っていれば消す
+/// （画像を入れ替えるため。フォルダの中のほかのファイルには触らない）
+#[tauri::command]
+fn prepare_export(md: String) -> Result<(), String> {
+    let md = Path::new(&md);
+    if !md.is_absolute() {
+        return Err(format!("不正なパス: {}", md.display()));
+    }
+    let dir = md.parent().ok_or("md の親ディレクトリがありません")?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let assets = assets_dir_of(md)?;
+    if assets.is_dir() {
+        std::fs::remove_dir_all(&assets).map_err(|e| format!("{}: {e}", assets.display()))?;
+    }
+    Ok(())
+}
+
+/// 画像を md の隣にコピーする（エクスポート用）。コピー元のファイルがなければ false
+#[tauri::command]
+fn copy_asset(md: String, rel: String, from: String) -> Result<bool, String> {
+    let src = Path::new(&from);
+    if !src.is_file() {
+        return Ok(false);
+    }
+    let target = asset_target(Path::new(&md), &rel)?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::copy(src, &target)
+        .map(|_| true)
+        .map_err(|e| format!("{}: {e}", target.display()))
+}
+
 /// 画像などのバイト列をそのまま返す（注釈の焼き込み用。asset URL だと canvas が汚染されて書き出せないため）
 #[tauri::command]
 fn read_binary(path: String) -> Result<tauri::ipc::Response, String> {
@@ -527,6 +566,8 @@ pub fn run() {
             write_asset,
             read_binary,
             write_binary,
+            prepare_export,
+            copy_asset,
             preview_pdf,
             save_preview_pdf,
             open_help,
@@ -571,6 +612,31 @@ mod tests {
         assert!(binary_target(r"C:\docs\a.md").is_err());
         assert!(binary_target(r"C:\docs\x.exe").is_err());
         assert!(binary_target("form.png").is_err());
+    }
+
+    #[test]
+    fn export_replaces_only_its_assets_dir() {
+        let dir = std::env::temp_dir().join(format!("mdp-export-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let md = dir.join("報告書.md");
+        std::fs::create_dir_all(dir.join("報告書.assets")).unwrap();
+        std::fs::write(dir.join("報告書.assets").join("old.png"), b"old").unwrap();
+        std::fs::write(dir.join("メモ.txt"), b"keep").unwrap();
+        let src = dir.join("src.png");
+        std::fs::write(&src, b"png").unwrap();
+
+        prepare_export(md.display().to_string()).unwrap();
+        assert!(!dir.join("報告書.assets").exists());
+        assert!(dir.join("メモ.txt").exists());
+
+        let md_s = md.display().to_string();
+        assert!(copy_asset(md_s.clone(), "報告書.assets/a.png".into(), src.display().to_string()).unwrap());
+        assert_eq!(std::fs::read(dir.join("報告書.assets").join("a.png")).unwrap(), b"png");
+        // コピー元がなければ false。.assets の外には書けない
+        assert!(!copy_asset(md_s.clone(), "報告書.assets/b.png".into(), dir.join("none.png").display().to_string()).unwrap());
+        assert!(copy_asset(md_s, "../x.png".into(), src.display().to_string()).is_err());
+        assert!(prepare_export("rel.md".into()).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

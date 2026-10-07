@@ -77,11 +77,12 @@ export function parseAnnotation(json: string): Annotation | null {
  */
 export function serializeAnnotation(a: Annotation): string {
   const round = (_k: string, v: unknown) => (typeof v === "number" ? Math.round(v) : v);
-  return JSON.stringify(a, round)
-    .replace(/</g, "\\u003c")
-    .replace(/>/g, "\\u003e")
-    .replace(/--/g, "-\\u002d");
+  return commentSafe(JSON.stringify(a, round));
 }
+
+/** JSON をコメントに書ける形にする（< > -- を \u エスケープにする） */
+export const commentSafe = (json: string) =>
+  json.replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/--/g, "-\\u002d");
 
 /**
  * 元画像の隣に置く焼き込み画像のパス（form.png → form.annotated.png、k が 2 以上なら form.annotated-2.png）。
