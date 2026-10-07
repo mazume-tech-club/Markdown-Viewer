@@ -11,6 +11,8 @@ use notify_debouncer_mini::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod collab;
+
 /// 起動引数で渡されたファイル（フロントエンドが準備できたら一度だけ取り出す）
 #[derive(Default)]
 struct LaunchFile(Mutex<Option<String>>);
@@ -489,14 +491,33 @@ fn unwatch_file(state: State<WatchState>, path: String) {
     state.0.lock().unwrap().remove(&path);
 }
 
+/// 開発用の切り替え。MDPREVIEW_DEV_INSTANCE=<名前> のときは 2 つ目の起動を許し、
+/// WebView2 のデータ（localStorage）とアプリのデータの置き場所を名前ごとに分ける。
+/// 1 台の PC でホストと参加者を両方起動して共同編集を試すため（README には書かない）
+fn dev_instance() -> Option<String> {
+    std::env::var("MDPREVIEW_DEV_INSTANCE").ok().filter(|name| {
+        !name.is_empty() && name.len() <= 32 && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let cwd = std::env::current_dir().unwrap_or_default();
     let args: Vec<String> = std::env::args().collect();
+    let mut context = tauri::generate_context!();
+    let dev = dev_instance();
 
-    tauri::Builder::default()
+    let mut builder = tauri::Builder::default();
+    if let Some(name) = &dev {
+        let root = PathBuf::from(std::env::var_os("LOCALAPPDATA").unwrap_or_default())
+            .join(&context.config().identifier)
+            .join("dev-instances")
+            .join(name);
+        context.config_mut().app.app_directories_override =
+            Some(tauri::utils::config::AppDirectoriesOverride::Root(root));
+    } else {
         // 2つ目の起動は既存ウィンドウにファイルを渡して終了する
-        .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(win) = app.get_webview_window("main") {
                 let _ = win.unminimize();
                 let _ = win.set_focus();
@@ -504,7 +525,10 @@ pub fn run() {
             if let Some(path) = file_arg(&args, Path::new(&cwd)) {
                 let _ = app.emit("open-file", path);
             }
-        }))
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -513,6 +537,7 @@ pub fn run() {
         .manage(WatchState::default())
         .manage(PdfPreview::default())
         .manage(FolderWatch::default())
+        .manage(collab::Collab::default())
         .invoke_handler(tauri::generate_handler![
             read_file,
             write_file,
@@ -530,9 +555,11 @@ pub fn run() {
             preview_pdf,
             save_preview_pdf,
             open_help,
-            install_update
+            install_update,
+            collab::collab_available,
+            collab::collab_call
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running tauri application");
 }
 

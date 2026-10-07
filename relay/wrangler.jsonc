@@ -1,0 +1,11 @@
+{
+  // 共同編集の中継サーバー。利用団体が自分の Cloudflare アカウントへ置く（docs/adr/0004）
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "markdown-preview-relay",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-01",
+  "durable_objects": {
+    "bindings": [{ "name": "ROOMS", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+}

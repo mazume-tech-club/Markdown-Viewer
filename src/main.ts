@@ -31,6 +31,11 @@ import {
 import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft, setupUpdater } from "./updater";
 import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, normalizeInputPath, resolvePath } from "./paths";
 import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
+import { CollabSession, type SessionHandlers } from "./collab/session";
+import { collabExtension } from "./collab/editor";
+import { applyText } from "./collab/text";
+import { isCollabError, tauriTransport } from "./collab/transport";
+import { setupCollabUi } from "./collab/ui";
 
 type Mode = "editor" | "split" | "preview";
 
@@ -72,6 +77,11 @@ interface Tab {
   externalChange: boolean;
   /** お試しタブ（ファイルパネルのシングルクリックで開いた、使い回すタブ）。編集すると通常タブになる */
   trial: boolean;
+  /**
+   * 共同編集セッション（docs/collaboration.md）。ホストは自分のファイルのタブ、参加者は path を持たないタブに付く。
+   * 本文は Y.Text が持つ。参加者のタブは、セッションが終わっても読み取り専用のまま残る
+   */
+  collab?: CollabSession;
 }
 
 let nextTabId = 1;
@@ -175,7 +185,12 @@ const IMAGE_EXT: Record<string, string> = {
 };
 
 /** 貼り付けた画像を保存待ちに登録し、挿入する Markdown を返す */
-async function onPasteImage(file: File): Promise<string> {
+async function onPasteImage(file: File): Promise<string | null> {
+  // 段階 1 では画像を共有しない。参加者が貼っても、ホストのファイルの隣には置けないので受け付けない
+  if (active.collab?.role === "guest") {
+    await message("共同編集の参加者は、まだ画像を貼り付けられません。", { title: "Markdown Preview", kind: "info" });
+    return null;
+  }
   const pendingImages = active.pendingImages;
   const ext = IMAGE_EXT[file.type] ?? "png";
   const d = new Date();
@@ -192,7 +207,8 @@ const editor = createEditor(
   $("editor-pane"),
   darkQuery.matches,
   () => {
-    setDirty(active, editor.getText() !== active.savedText);
+    // 参加者のタブはファイルを持たないので、未保存の印を付けない
+    if (active.collab?.role !== "guest") setDirty(active, editor.getText() !== active.savedText);
     scheduleRender();
   },
   onPasteImage,
@@ -330,13 +346,15 @@ applyZoom();
 
 // ---------- タブ ----------
 
-const tabName = (tab: Tab) => (tab.path ? basename(tab.path) : "無題");
+const tabName = (tab: Tab) =>
+  tab.collab?.role === "guest" ? `${tab.collab.file || "読み込み中"}（共同編集）` : tab.path ? basename(tab.path) : "無題";
 /** Windows のパスは大文字小文字と区切り文字の違いを同じとみなす */
 const samePath = (a: string, b: string) => a.replace(/\//g, "\\").toLowerCase() === b.replace(/\//g, "\\").toLowerCase();
-/** タブの本文（表示中のタブはエディタが持っている） */
-const textOf = (tab: Tab) => (tab === active ? editor.getText() : tab.doc.doc.toString());
+/** タブの本文（表示中のタブはエディタが、共同編集中のタブは Y.Text が持っている） */
+const textOf = (tab: Tab) =>
+  tab.collab ? tab.collab.text.toString() : tab === active ? editor.getText() : tab.doc.doc.toString();
 /** 空の「無題」で未編集のタブ（ファイルを開くときに使い回す） */
-const isBlank = (tab: Tab) => !tab.path && !tab.dirty && textOf(tab) === "" && !tab.pendingImages.size;
+const isBlank = (tab: Tab) => !tab.path && !tab.collab && !tab.dirty && textOf(tab) === "" && !tab.pendingImages.size;
 
 function makeTab(path: string | null, text: string): Tab {
   return {
@@ -400,6 +418,13 @@ function renderTabs() {
       const name = document.createElement("span");
       name.className = "tab-name";
       name.textContent = tabName(tab);
+      if (tab.collab && tab.collab.status !== "closed") {
+        const mark = document.createElement("span");
+        mark.className = "tab-collab";
+        mark.textContent = "⇄";
+        mark.title = tab.collab.role === "host" ? "共同編集中（あなたがホスト）" : "共同編集中";
+        el.append(mark);
+      }
       el.append(name);
       if (tab.dirty) {
         const dot = document.createElement("span");
@@ -454,6 +479,8 @@ function activate(tab: Tab) {
     active.editorScroll = editor.view.scrollDOM.scrollTop;
   }
   active = tab;
+  // 共同編集中のタブは、裏にいる間も Y.Text が更新され続けるので、表に出すときに作り直す
+  if (tab.collab) tab.doc = collabState(tab);
   editor.setState(tab.doc);
   banner.hidden = !tab.externalChange;
   renderTabs();
@@ -491,6 +518,8 @@ function pinTab(tab: Tab) {
 
 /** タブの本文を差し替える（Undo で戻せる。変更扱いにはしない） */
 function setTabText(tab: Tab, text: string) {
+  // 共同編集中は、違う部分だけをホストの編集として全員に流す（全体を差し替えると、ほかの人の入力が消えるため）
+  if (tab.collab && tab.collab.status !== "closed") return applyText(tab.collab.text, text);
   if (tab === active) editor.setText(text);
   else tab.doc = tab.doc.update({ changes: { from: 0, to: tab.doc.doc.length, insert: text } }).state;
 }
@@ -676,6 +705,15 @@ async function reloadTab(tab: Tab, force = false) {
 
 async function closeTab(tab: Tab) {
   if (state.updating || !(await confirmDiscard(tab))) return;
+  if (tab.collab && tab.collab.status !== "closed") {
+    const host = tab.collab.role === "host";
+    const ok = await ask(
+      host ? "共同編集を終えてタブを閉じますか？参加者全員の共同編集も終わります。" : "共同編集から抜けてタブを閉じますか？",
+      { title: "Markdown Preview", kind: "warning", okLabel: host ? "終える" : "抜ける", cancelLabel: "キャンセル" },
+    );
+    if (!ok) return;
+    await tab.collab.leave();
+  }
   const i = tabs.indexOf(tab);
   if (i < 0) return;
   tabs.splice(i, 1);
@@ -753,9 +791,26 @@ function moveImagesTo(tab: Tab, dir: string): string {
   return text;
 }
 
+/** 参加者のタブを、手元のファイルにコピーとして保存する（タブはファイルとは結び付けない） */
+async function saveCopy(tab: Tab): Promise<boolean> {
+  const picked = await saveDialog({
+    defaultPath: tab.collab?.file || "untitled.md",
+    filters: [{ name: "Markdown", extensions: ["md"] }],
+  });
+  if (!picked) return false;
+  try {
+    await invoke("write_file", { path: picked, content: textOf(tab) });
+    return true;
+  } catch (err) {
+    await showError(err);
+    return false;
+  }
+}
+
 /** 表示中のタブを保存する */
 async function saveFile(saveAs = false): Promise<boolean> {
   const tab = active;
+  if (tab.collab?.role === "guest") return saveCopy(tab);
   const oldPath = tab.path;
   let path = oldPath;
   if (!path || saveAs) {
@@ -805,6 +860,158 @@ async function newFile() {
   if (state.mode === "preview") setMode("split");
   else editor.view.focus();
 }
+
+// ---------- 共同編集（docs/collaboration.md） ----------
+// 同時に開ける共同編集セッションは 1 つだけ。画面（開始・参加・承認など）は作業 6 で足す
+
+/** 共同編集が終わった・外れたときに出す言葉（docs/collaboration-protocol.md のクローズコード） */
+const COLLAB_CLOSE_MESSAGE: Record<number, string> = {
+  0: "共同編集プラグインが止まりました",
+  1006: "中継サーバーとの接続が切れました",
+  4000: "通信の形が正しくありません",
+  4001: "ホストと版が違います。アプリを更新してください",
+  4002: "この招待リンクは終わっています",
+  4003: "参加を断られました",
+  4004: "満員のため参加できません",
+  4005: "ホストが共同編集を終えました",
+  4006: "接続に失敗しました",
+  4007: "共同編集を始められませんでした",
+};
+
+const collabTab = () => tabs.find((t) => t.collab && t.collab.status !== "closed");
+
+/** 共同編集のタブの編集状態を、今の Y.Text とセッションの状態から作る */
+function collabState(tab: Tab): EditorState {
+  const s = tab.collab!;
+  return editor.createState(s.text.toString(), collabExtension(s));
+}
+
+/** セッションの状態が変わったとき（書けるようになった・終わった）に、エディタを掛け直す */
+function refreshCollabTab(tab: Tab) {
+  if (tab.collab) tab.doc = collabState(tab);
+  if (tab === active) {
+    const scroll = editor.view.scrollDOM.scrollTop;
+    editor.setState(tab.doc);
+    editor.view.scrollDOM.scrollTop = scroll;
+    void render();
+  }
+  renderTabs();
+}
+
+/** タブとセッションをつなぐ。裏にいる間に届いた編集でも、未保存の印と描画を更新する */
+function collabHandlers(getTab: () => Tab | undefined, extra: SessionHandlers = {}): SessionHandlers {
+  return {
+    ...extra,
+    status(status) {
+      const tab = getTab();
+      if (tab && (status === "live" || status === "closed")) refreshCollabTab(tab);
+      extra.status?.(status);
+    },
+    info() {
+      renderTabs();
+    },
+    closed(c) {
+      const tab = getTab();
+      if (tab?.collab?.role === "host") {
+        // ホストのタブはふつうのタブに戻す（本文と未保存の印はそのまま）
+        tab.collab = undefined;
+        refreshCollabTab(tab);
+      }
+      if (c.reason !== "leave") {
+        void message(COLLAB_CLOSE_MESSAGE[c.code] ?? `共同編集が終わりました（${c.code} ${c.reason}）`, {
+          title: "Markdown Preview",
+          kind: "info",
+        });
+      }
+      extra.closed?.(c);
+    },
+    warning(m) {
+      console.warn("collab:", m);
+      extra.warning?.(m);
+    },
+  };
+}
+
+function watchCollabText(tab: Tab, s: CollabSession) {
+  s.text.observe(() => {
+    if (tab === active) return; // 表のタブはエディタの onChange が扱う
+    if (s.role === "host") setDirty(tab, s.text.toString() !== tab.savedText);
+  });
+}
+
+async function collabFailed(err: unknown) {
+  const why = isCollabError(err) ? err.message : String(err);
+  await message(`共同編集を始められませんでした: ${why}`, { title: "Markdown Preview", kind: "error" });
+}
+
+/**
+ * 表示中のタブで、ホストとして共同編集を始める。招待リンクを返す。
+ * ホストのファイルが正本なので、保存済みのファイルのタブでだけ始められる
+ */
+async function startCollab(name: string, handlers: SessionHandlers = {}): Promise<string | null> {
+  const tab = active;
+  if (collabTab()) {
+    await collabFailed("すでに共同編集中です");
+    return null;
+  }
+  if (!tab.path) {
+    await collabFailed("先にファイルを保存してください");
+    return null;
+  }
+  // ready は start の返事より先に届くことがあるので、まだタブに付いていない間の知らせは無視する
+  let s: CollabSession | undefined;
+  try {
+    s = await CollabSession.start(
+      tauriTransport,
+      { name, text: textOf(tab), file: basename(tab.path) },
+      collabHandlers(() => tabs.find((t) => s && t.collab === s), handlers),
+    );
+  } catch (err) {
+    await collabFailed(err);
+    return null;
+  }
+  tab.collab = s;
+  watchCollabText(tab, s);
+  refreshCollabTab(tab);
+  return s.invite;
+}
+
+/** 招待リンクで参加を求める。参加者のタブを開き、ホストの承認と内容を待つ */
+async function joinCollab(invite: string, name: string, handlers: SessionHandlers = {}): Promise<boolean> {
+  if (collabTab()) {
+    await collabFailed("すでに共同編集中です");
+    return false;
+  }
+  let s: CollabSession | undefined;
+  try {
+    s = await CollabSession.join(
+      tauriTransport,
+      { name, invite },
+      collabHandlers(() => tabs.find((t) => s && t.collab === s), handlers),
+    );
+  } catch (err) {
+    await collabFailed(err);
+    return false;
+  }
+  const tab = makeTab(null, "");
+  tab.collab = s;
+  watchCollabText(tab, s);
+  addTab(tab);
+  return true;
+}
+
+const collabUi = setupCollabUi({
+  start: startCollab,
+  join: joinCollab,
+  session: () => collabTab()?.collab,
+  cannotStart: () =>
+    active.collab?.role === "guest"
+      ? "参加中のタブでは始められません。"
+      : !active.path
+        ? "表示中のタブを保存してから始めてください（ホストのファイルが正本になります）。"
+        : null,
+  changed: () => renderTabs(),
+});
 
 /** 外部でファイルが変更されたとき（そのファイルを開いているタブだけが対象） */
 async function onExternalChange(path: string) {
@@ -944,6 +1151,7 @@ function openSettings() {
   keepDraft.checked = isKeepDraftEnabled();
   setFiles.checked = isFilePanelEnabled();
   setRecentCount.value = String(getRecentCount());
+  collabUi.onSettingsOpen();
   settingsOverlay.hidden = false;
   $("settings-close").focus();
 }
@@ -1238,6 +1446,7 @@ window.addEventListener(
     else if (mod && e.shiftKey && key === "a") run(() => annotator.open());
     else if (mod && e.shiftKey && key === "c") run(() => copyPath());
     else if (!settingsOverlay.hidden && e.key === "Escape") run(() => closeSettings());
+    else if (collabUi.isOpen() && e.key === "Escape") run(() => collabUi.close());
     else if (!openPathOverlay.hidden && e.key === "Escape") run(() => closeOpenPath());
     // Ctrl+O より先に判定する（Shift 付きも key は "o"）
     else if (mod && e.shiftKey && key === "o") run(() => openPathPrompt());

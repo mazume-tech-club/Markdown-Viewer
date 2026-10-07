@@ -417,6 +417,38 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 }
 .settings input[type="color"] { width: 32px; height: 22px; padding: 0; border: 1px solid var(--border); background: none; }
 
+/* 共同編集 */
+.settings input[type="text"] {
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+.settings input[type="text"]:read-only { color: var(--muted); }
+.collab-note { margin: 2px 0 6px; color: var(--muted); overflow-wrap: anywhere; }
+.collab-note:empty { display: none; }
+.collab-warn { color: var(--error); }
+#collab-error { margin: 0; padding: 0 16px 12px; }
+#collab-error[hidden] { display: none; }
+.collab-peers { margin: 6px 0; padding-left: 20px; }
+.collab-peers li { margin: 2px 0; }
+#btn-collab.collab-on { color: var(--accent); font-weight: 600; }
+.collab-requests[hidden] { display: none; }
+.collab-request {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+  border-bottom: 1px solid var(--border);
+}
+.collab-request span { flex: 1; }
+.collab-request button { border-color: var(--border); }
+.tab-collab { flex: none; color: var(--accent); }
+
 /* 印刷・PDF 出力: プレビューだけを白地で出す */
 /* 図のビルダー（ほぼ全画面のパネル。左にフォーム、右にプレビュー） */
 .builder {

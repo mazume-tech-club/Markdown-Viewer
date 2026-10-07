@@ -14,6 +14,7 @@
       <button id="btn-save-as" title="名前を付けて保存 (Ctrl+Shift+S)">名前を付けて保存</button>
       <button id="btn-copy-path" title="開いているファイルのパスをコピー (Ctrl+Shift+C)">パスをコピー</button>
       <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
+      <button id="btn-collab" title="共同編集（始める・参加する・参加者）" hidden>共同編集</button>
       <button id="btn-builder" title="図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す）。カーソルが画像の行なら画像の注釈 (Ctrl+Shift+D)">図</button>
       <button id="btn-settings" title="設定 (Ctrl+,)">設定</button>
       <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
@@ -33,6 +34,7 @@
       <button id="banner-reload">再読み込み</button>
       <button id="banner-ignore">無視</button>
     </div>
+    <div id="collab-requests" class="collab-requests" hidden></div>
     <div id="update-banner" class="banner update" hidden>
       <span id="update-text"></span>
       <span id="update-progress" class="update-progress"></span>
@@ -108,6 +110,14 @@
           </div>
           <label class="settings-row" title="オフにすると、エディタの一番上の行に合わせてスクロールします"><input id="follow-cursor" type="checkbox" /> 分割表示でプレビューをカーソルの位置に合わせる</label>
         </section>
+        <section id="settings-collab" class="settings-section" hidden>
+          <h3>共同編集</h3>
+          <div class="settings-row" title="利用団体が自分の Cloudflare に置いた中継サーバーの URL（団体管理者に聞いてください）">
+            <input id="set-relay" class="grow" type="text" spellcheck="false" autocomplete="off" placeholder="中継サーバーの URL（https://…）" />
+            <button id="set-relay-save">保存</button>
+          </div>
+          <div id="set-relay-status" class="collab-note"></div>
+        </section>
         <section class="settings-section">
           <h3>更新</h3>
           <div class="settings-row">
@@ -117,6 +127,46 @@
           <label class="settings-row"><input id="auto-update" type="checkbox" /> 起動時に自動で更新を確認</label>
           <label class="settings-row" title="オフにすると、更新前に未保存の変更を破棄するか確認します"><input id="keep-draft" type="checkbox" /> 更新時、未保存の変更を再起動後に復元</label>
         </section>
+      </div>
+    </div>
+    <div id="collab" class="settings" hidden>
+      <div class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="collab-title">
+        <div class="settings-head">
+          <strong id="collab-title">共同編集</strong>
+          <button id="collab-close" title="閉じる (Esc)">閉じる</button>
+        </div>
+        <section class="settings-section">
+          <label class="settings-row">
+            <span>表示する名前</span>
+            <input id="collab-name" class="grow" type="text" maxlength="50" autocomplete="off" placeholder="ほかの人のカーソルの横に出ます" />
+          </label>
+        </section>
+        <div id="collab-idle">
+          <section class="settings-section">
+            <h3>このタブで始める（ホスト）</h3>
+            <p id="collab-start-note" class="collab-note"></p>
+            <div class="settings-row"><span class="grow"></span><button id="collab-start" class="primary">始める</button></div>
+          </section>
+          <section class="settings-section">
+            <h3>招待リンクで参加する</h3>
+            <div class="settings-row">
+              <input id="collab-invite-in" class="grow" type="text" spellcheck="false" autocomplete="off" placeholder="ホストから受け取った招待リンク（https://…/r/…#k=…）" />
+            </div>
+            <div class="settings-row"><span class="grow"></span><button id="collab-join" class="primary">参加</button></div>
+          </section>
+        </div>
+        <div id="collab-active" hidden>
+          <section class="settings-section">
+            <h3 id="collab-state"></h3>
+            <div id="collab-invite-row" class="settings-row" title="この招待リンクを、一緒に編集する人にチャットなどで送ってください">
+              <input id="collab-invite-out" class="grow" type="text" readonly />
+              <button id="collab-copy">コピー</button>
+            </div>
+            <ul id="collab-peers" class="collab-peers"></ul>
+            <div class="settings-row"><span class="grow"></span><button id="collab-leave"></button></div>
+          </section>
+        </div>
+        <p id="collab-error" class="collab-note collab-warn" hidden></p>
       </div>
     </div>
     <div id="preview-menu" class="files-menu" role="menu" hidden>
