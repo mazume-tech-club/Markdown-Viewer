@@ -32,6 +32,18 @@ export function hasScheme(href: string): boolean {
   return /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(href) && !/^[a-zA-Z]:[\\/]/.test(href);
 }
 
+/** Markdown のリンクに書くパス（空白と括弧があるとリンクが途切れるので %xx にする） */
+export const mdLink = (rel: string) => rel.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
+
+/** %xx を戻す（markdown-it は日本語や空白を %xx にする）。戻せなければそのまま */
+export const safeDecode = (s: string) => {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+};
+
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|mdown|mkd)$/i.test(path);
 }

@@ -6,11 +6,13 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getVersion } from "@tauri-apps/api/app";
+import { downloadDir } from "@tauri-apps/api/path";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open as openDialog, save as saveDialog, ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { findImageSource, renderMarkdown } from "./render";
+import { findImageRefs, findImageSource, renderMarkdown } from "./render";
+import { planImages, rewriteImageLinks } from "./export";
 import { fillCached, renderDiagrams } from "./diagrams";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
@@ -29,7 +31,7 @@ import {
   setActiveLineEnabled,
 } from "./prefs";
 import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft, setupUpdater } from "./updater";
-import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, normalizeInputPath, resolvePath } from "./paths";
+import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, mdLink, normalizeInputPath, resolvePath, safeDecode } from "./paths";
 import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
 
 type Mode = "editor" | "split" | "preview";
@@ -148,22 +150,11 @@ function rewriteImages(root: ParentNode) {
 
 // ---------- エディタ ----------
 
-const safeDecode = (s: string) => {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
-  }
-};
-
 /**
  * 貼り付けた画像を置くフォルダ（md と同じ場所の「md の名前.assets」）。
  * まだ保存していない無題の文書は仮に untitled.assets とし、保存するときに正しい名前へ付け替える
  */
 const assetDirOf = (mdPath: string | null) => `${mdPath ? basename(mdPath).replace(/\.[^.]+$/, "") : "untitled"}.assets`;
-
-/** Markdown のリンクに書くパス（空白と括弧があるとリンクが途切れるので %xx にする） */
-const mdLink = (rel: string) => rel.replace(/ /g, "%20").replace(/\(/g, "%28").replace(/\)/g, "%29");
 
 const IMAGE_EXT: Record<string, string> = {
   "image/png": "png",
@@ -1132,6 +1123,93 @@ void listen<string>("insert-snippet", async (e) => {
   editor.insert(e.payload);
   await appWindow.setFocus();
 });
+
+// ---------- エクスポート（MD と画像を 1 つのフォルダにまとめる。export.ts 参照） ----------
+
+const EXPORT_DIR_KEY = "export.lastDir";
+
+/**
+ * 表示中のタブをエクスポートする。保存していない変更（貼り付けたばかりの画像も）を含め、元のファイルは変えない。
+ * 入力した名前のフォルダを作り、その中に「名前.md」と「名前.assets」を置く
+ */
+async function exportTab() {
+  const tab = active;
+  const stem = tab.path ? basename(tab.path).replace(/\.[^.]+$/, "") : "untitled";
+  // 置き場所の初期値は前回のエクスポート先（初回はダウンロード）。元の MD の隣にすると、
+  // 同じ名前の MD があるためダイアログが「上書きしますか」と聞いてしまう（実際には上書きしない）
+  const where = localStorage.getItem(EXPORT_DIR_KEY) ?? (await downloadDir().catch(() => ""));
+  // .md 付きで名前を聞く（拡張子なしだと、同じ名前の既存フォルダを入力したときにダイアログがその中へ移動してしまう）
+  const picked = await saveDialog({
+    title: "エクスポート（入力した名前のフォルダにまとめる）",
+    defaultPath: where ? resolvePath(where, `${stem}.md`) : `${stem}.md`,
+    filters: [{ name: "Markdown", extensions: ["md"] }],
+  });
+  if (!picked) return;
+  const dir = picked.replace(/\.md$/i, "");
+  localStorage.setItem(EXPORT_DIR_KEY, dirname(dir));
+  const name = basename(dir);
+  const mdPath = `${dir}\\${name}.md`;
+  if (
+    (await invoke<boolean>("path_exists", { path: dir })) &&
+    !(await ask(`「${dir}」はすでにあります。\n中の「${name}.md」と「${name}.assets」を置き換えますか？\nほかのファイルはそのまま残ります。`, {
+      title: "エクスポート",
+      kind: "warning",
+      okLabel: "置き換える",
+      cancelLabel: "キャンセル",
+    }))
+  ) {
+    return;
+  }
+
+  const text = textOf(tab);
+  const refs = findImageRefs(text);
+  const base = tab.path ? dirname(tab.path) : null;
+  /** 画像の出どころ。保存待ちならそれ、そうでなければディスク上の絶対パス（無題のタブの相対パスは分からない） */
+  const sourceOf = (file: string) =>
+    tab.pendingImages.get(file) ?? (base || isAbsolute(file) ? resolvePath(base ?? "", file) : null);
+  const plan = planImages(refs, (file) => {
+    const src = sourceOf(file);
+    return typeof src === "string" ? src.toLowerCase() : `${src ? "pending" : "missing"}:${file}`;
+  });
+  try {
+    await invoke("prepare_export", { md: mdPath });
+    const to = new Map<string, string>();
+    const copied = new Map<string, boolean>();
+    const missing = new Set<string>();
+    for (const [link, img] of plan) {
+      const rel = `${name}.assets/${img.name}`;
+      let ok = copied.get(img.name);
+      if (ok === undefined) {
+        const src = sourceOf(img.file);
+        if (!src) ok = false;
+        else if (typeof src === "string") ok = await invoke<boolean>("copy_asset", { md: mdPath, rel, from: src });
+        else {
+          await invoke("write_asset", src.bytes, {
+            headers: { "x-md": encodeURIComponent(mdPath), "x-rel": encodeURIComponent(rel) },
+          });
+          ok = true;
+        }
+        copied.set(img.name, ok);
+      }
+      if (ok) to.set(link, rel);
+      else missing.add(img.file);
+    }
+    await invoke("write_file", { path: mdPath, content: rewriteImageLinks(text, refs, to) });
+    const msg = [`「${dir}」にエクスポートしました。`];
+    if (missing.size) msg.push("", "次の画像は見つからなかったので、リンクをそのまま残しました:", ...[...missing].map((f) => `・${f}`));
+    const open = await ask(msg.join("\n"), {
+      title: "エクスポート",
+      kind: missing.size ? "warning" : "info",
+      okLabel: "フォルダを開く",
+      cancelLabel: "閉じる",
+    });
+    if (open) await revealItemInDir(mdPath);
+  } catch (err) {
+    await showError(err);
+  }
+}
+
+$("btn-export").addEventListener("click", () => exportTab());
 
 // ---------- PDF（プレビュー → 保存） ----------
 
