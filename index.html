@@ -121,7 +121,16 @@
       </div>
     </div>
     <div id="preview-menu" class="files-menu" role="menu" hidden>
-      <button role="menuitem" title="矢印・テキスト・枠・番号を画像に重ねる (Ctrl+Shift+A)">注釈を編集…</button>
+      <button data-action="view" role="menuitem" title="ウィンドウいっぱいに出して拡大縮小・移動しながら見る（ダブルクリックでも開く）">拡大して見る</button>
+      <button data-action="annotate" role="menuitem" title="矢印・テキスト・枠・番号を画像に重ねる (Ctrl+Shift+A)">注釈を編集…</button>
+    </div>
+    <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="拡大ビューア" hidden>
+      <div id="viewer-stage" class="viewer-stage"></div>
+      <div class="viewer-bar">
+        <span class="viewer-hint">ホイールで拡大縮小・ドラッグで移動・0 で全体・1 で実寸</span>
+        <span id="viewer-zoom" class="viewer-zoom">100%</span>
+        <button id="viewer-close" title="閉じる (Esc)">×</button>
+      </div>
     </div>
     <div id="open-path" class="quick-input" hidden>
       <div class="quick-input-panel" role="dialog" aria-label="パスで開く">

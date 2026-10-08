@@ -14,6 +14,7 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { findImageRefs, findImageSource, renderMarkdown } from "./render";
 import { planImages, rewriteImageLinks } from "./export";
 import { fillCached, renderDiagrams } from "./diagrams";
+import { setupViewer, viewableAt } from "./viewer";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
 import { loadSession, saveSession } from "./session";
@@ -309,7 +310,8 @@ const focusedTarget = (): ZoomTarget =>
 window.addEventListener(
   "wheel",
   (e) => {
-    if (!e.ctrlKey) return;
+    // 拡大ビューアを開いている間は、ビューアの中だけを拡大縮小する
+    if (!e.ctrlKey || viewer.isOpen()) return;
     e.preventDefault();
     const target: ZoomTarget = $("editor-pane").contains(e.target as Node) ? "editor" : "preview";
     changeZoom(target, e.deltaY < 0 ? 0.1 : -0.1);
@@ -860,14 +862,32 @@ const annotator = setupAnnotator({
 const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
 $("btn-builder").addEventListener("click", () => openDiagramTool());
 
-// プレビューの画像を右クリック →「注釈を編集」
+// プレビューの図や画像をダブルクリック、または右クリック →「拡大して見る」で拡大ビューアを開く
+const viewer = setupViewer();
+function openViewer(el: HTMLElement | SVGSVGElement) {
+  if (!viewer.open(el)) void message("画像を読み込めていないため、拡大して見られません。", { title: "拡大ビューア", kind: "warning" });
+}
+preview.addEventListener("dblclick", (e) => {
+  const el = viewableAt(e.target);
+  if (!el) return;
+  e.preventDefault();
+  // ダブルクリックで選ばれた文字の選択を外す
+  window.getSelection()?.removeAllRanges();
+  openViewer(el);
+});
+
+// プレビューの図や画像を右クリック →「拡大して見る」「注釈を編集」（注釈は画像だけ）
 const previewMenu = $("preview-menu");
+const annotateItem = previewMenu.querySelector<HTMLButtonElement>('[data-action="annotate"]')!;
+let menuTarget: HTMLElement | SVGSVGElement | null = null;
 let menuImage: number | null = null;
 preview.addEventListener("contextmenu", (e) => {
-  const img = (e.target as Element).closest<HTMLImageElement>("img[data-img-n]");
-  if (!img) return;
+  menuTarget = viewableAt(e.target);
+  if (!menuTarget) return;
   e.preventDefault();
-  menuImage = Number(img.dataset.imgN);
+  const img = (e.target as Element).closest<HTMLImageElement>("img[data-img-n]");
+  menuImage = img ? Number(img.dataset.imgN) : null;
+  annotateItem.hidden = menuImage === null;
   previewMenu.hidden = false;
   const r = previewMenu.getBoundingClientRect();
   previewMenu.style.left = `${Math.min(e.clientX, window.innerWidth - r.width - 4)}px`;
@@ -875,14 +895,18 @@ preview.addEventListener("contextmenu", (e) => {
 });
 const closePreviewMenu = () => {
   previewMenu.hidden = true;
+  menuTarget = null;
   menuImage = null;
 };
 window.addEventListener("pointerdown", (e) => !previewMenu.contains(e.target as Node) && closePreviewMenu(), true);
 window.addEventListener("blur", closePreviewMenu);
-previewMenu.addEventListener("click", async () => {
+previewMenu.addEventListener("click", async (e) => {
+  const action = (e.target as Element).closest<HTMLElement>("[data-action]")?.dataset.action;
+  const target = menuTarget;
   const n = menuImage;
   closePreviewMenu();
-  if (n === null) return;
+  if (action === "view" && target) return openViewer(target);
+  if (action !== "annotate" || n === null) return;
   // ソースのその画像にカーソルを移してから開く（エディタ側の位置で書き換えるため）
   const pos = findImageSource(editor.getText(), n);
   if (!pos) return void message("この画像の場所を MD の中で見つけられませんでした。", { title: "画像の注釈", kind: "warning" });
@@ -1302,6 +1326,10 @@ window.addEventListener(
       e.stopPropagation();
       fn();
     };
+    // 拡大ビューアを開いている間は、ビューアの操作だけを受け付ける（下の文書を変えないため）
+    if (viewer.isOpen()) {
+      return run(() => viewer.handleKey(e));
+    }
     // 図のビルダーを開いている間は、入力欄にキーを渡す（Esc で閉じるだけ）
     if (annotator.isOpen()) {
       if (e.key === "Escape") run(() => annotator.close());

@@ -348,6 +348,45 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 #pdf-frame { flex: 1; border: 0; width: 100%; background: #525659; }
 
+/* 拡大ビューア（図や画像を 1 つ、ウィンドウいっぱいに出す。中身は transform で拡大縮小・移動する） */
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  background: color-mix(in srgb, var(--bg) 25%, rgb(0 0 0 / 80%));
+}
+.viewer[hidden] { display: none; }
+.viewer-stage { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
+.viewer-stage.dragging { cursor: grabbing; }
+.viewer-stage > .viewer-content {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: block;
+  margin: 0;
+  transform-origin: 0 0;
+  background: var(--bg);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 45%);
+}
+.viewer-stage > img.viewer-content, .viewer-content img { max-width: none; width: 100%; height: 100%; }
+.viewer-bar {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 10px;
+  background: var(--toolbar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 25%);
+}
+.viewer-zoom { min-width: 44px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
+.viewer-hint { color: var(--muted); font-size: 12px; }
+.viewer-bar button { border-color: var(--border); }
+
 /* パスで開く（画面上部の中央に出す入力欄） */
 .quick-input {
   position: fixed;
@@ -608,7 +647,7 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 
 @media print {
   @page { margin: 15mm 12mm; }
-  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings, #files, #files-divider, #files-menu, #open-path, #preview-menu, #annotator { display: none !important; }
+  #toolbar, #tabs, #banner, #update-banner, #editor-pane, #divider, #dropzone, #pdf-preview, #settings, #files, #files-divider, #files-menu, #open-path, #preview-menu, #annotator, #viewer { display: none !important; }
   html, body { height: auto; overflow: visible; background: #fff; }
   body, #workspace, #main { display: block; }
   #preview-pane { overflow: visible; visibility: visible !important; }
