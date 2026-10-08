@@ -81,7 +81,7 @@
 ~~~~
 
 ## コードブロック
-``` の後ろに言語名を書くと色分けされる（ts, js, python, rust, go, java, c, cpp, cs, sql, json, yaml, bash, powershell, html, css など）。言語名はコードブロックの左上にラベルとして表示される。`言語名:ファイル名` と書くと（Qiita と同じ書き方）、ラベルにはファイル名が出る。
+``` の後ろに言語名を書くと色分けされる（ts, js, python, rust, go, java, c, cpp, cs, sql, json, yaml, bash, powershell, html, css など）。言語名はコードブロックの左上にラベルとして表示される。`言語名:ファイル名` と書くと（Qiita と同じ書き方）、ラベルにはファイル名が出る。プレビューでコードブロックにマウスを乗せると右上に「コピー」ボタンが出て、コードをクリップボードにコピーできる。
 ~~~~example
 ```python
 def hello(name: str) -> str:
