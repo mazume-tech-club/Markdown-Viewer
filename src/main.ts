@@ -113,6 +113,7 @@ function render(): Promise<void> {
     ? renderMarkdown(text)
     : `<div class="empty-state"><p>Markdown ファイルをドロップするか、<kbd>Ctrl</kbd>+<kbd>O</kbd> で開いてください。</p></div>`;
   rewriteImages(tpl.content);
+  addCopyButtons(tpl.content);
   renderAnnotations(tpl.content, resolveImageSrc);
   fillCached(tpl.content, dark);
   const scroll = previewPane.scrollTop;
@@ -146,6 +147,22 @@ function rewriteImages(root: ParentNode) {
     if (!src || hasScheme(src) || src.startsWith("//")) continue;
     const url = resolveImageSrc(src);
     if (url) img.src = url;
+  }
+}
+
+/** コードブロックの右上にコピーボタンを付ける。pre はスクロールするので、包んだ外側に置く */
+function addCopyButtons(root: ParentNode) {
+  for (const pre of root.querySelectorAll("pre:not(.diagram-src)")) {
+    if (!pre.querySelector("code")) continue;
+    const wrap = document.createElement("div");
+    wrap.className = "code-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "code-copy";
+    btn.title = "コードをコピー";
+    btn.textContent = "コピー";
+    pre.replaceWith(wrap);
+    wrap.append(pre, btn);
   }
 }
 
@@ -1292,6 +1309,24 @@ $("pdf-save").addEventListener("click", () => savePdf());
 $("pdf-close").addEventListener("click", () => closePdfPreview());
 
 // ---------- リンク ----------
+
+// コードブロックのコピーボタン
+preview.addEventListener("click", async (e) => {
+  const btn = (e.target as Element).closest<HTMLButtonElement>(".code-copy");
+  const code = btn?.parentElement?.querySelector("pre code");
+  if (!btn || !code) return;
+  try {
+    await navigator.clipboard.writeText(code.textContent ?? "");
+    btn.textContent = "コピーしました";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "コピー";
+      btn.classList.remove("copied");
+    }, 1500);
+  } catch (err) {
+    await showError(err);
+  }
+});
 
 preview.addEventListener("click", async (e) => {
   const a = (e.target as Element).closest("a");

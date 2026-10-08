@@ -197,6 +197,27 @@ button:hover { background: var(--btn-hover); }
   vertical-align: bottom;
   user-select: none;
 }
+/* コードブロック右上のコピーボタン。ふだんは隠し、ブロックにマウスを乗せると出す */
+.markdown-body .code-wrap { position: relative; }
+.markdown-body .code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: inherit;
+  font: 12px/1.6 "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+  user-select: none;
+}
+.markdown-body .code-wrap:hover .code-copy,
+.markdown-body .code-copy:focus-visible,
+.markdown-body .code-copy.copied { opacity: 1; }
+.markdown-body .code-copy:hover { border-color: var(--accent); }
 /* 編集位置のハイライト。背景色（コードブロックや表の縞）を残すよう、画像として上に重ねる */
 .markdown-body .active-line {
   --active-line-bg: color-mix(in srgb, var(--active-line) 22%, transparent);
@@ -655,4 +676,5 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
   .diagram, .markdown-body .code-block, .markdown-body pre, .markdown-body table, .markdown-body img, .annotated { break-inside: avoid; }
   .markdown-body h1, .markdown-body h2, .markdown-body h3 { break-after: avoid; }
   .markdown-body .active-line { background-image: none; box-shadow: none; }
+  .markdown-body .code-copy { display: none; }
 }
