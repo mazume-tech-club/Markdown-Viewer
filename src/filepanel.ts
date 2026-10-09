@@ -43,6 +43,8 @@ export interface FilePanelOptions {
   activePath: () => string | null;
   /** パネルを閉じたときにフォーカスを返す先 */
   onClose: () => void;
+  /** パネルを開いた・閉じたとき（メニューバーのチェックを合わせる） */
+  onOpenChange?: (open: boolean) => void;
 }
 
 /** Windows のパスは大文字小文字と区切り文字の違いを同じとみなす */
@@ -266,6 +268,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
     divider.hidden = false;
     toggleBtn.classList.add("active");
     localStorage.setItem(OPEN_KEY, "1");
+    opts.onOpenChange?.(true);
     // 初めて開いたときは、アクティブなタブのファイルのフォルダを作業フォルダにする
     if (!root) {
       const p = opts.activePath();
@@ -283,6 +286,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
     divider.hidden = true;
     toggleBtn.classList.remove("active");
     localStorage.setItem(OPEN_KEY, "0");
+    opts.onOpenChange?.(false);
     closeMenu();
     void stopWatch();
     if (hadFocus) opts.onClose();
@@ -564,6 +568,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
   return {
     toggle,
     setEnabled,
+    isOpen,
     /** 設定「最近使ったフォルダの表示件数」を変える */
     setRecentCount(n: number) {
       localStorage.setItem(RECENT_COUNT_KEY, String(Math.min(RECENT_COUNT_MAX, Math.max(0, Math.round(n)))));

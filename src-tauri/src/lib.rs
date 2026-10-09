@@ -480,6 +480,32 @@ async fn open_help(app: AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// メニューバーのメニューを、アクセスキー（ファイル(F) の F など）で開く。
+/// エディタ（WebView2）にフォーカスがあると Alt+F が Windows に届かないので、
+/// フロントエンドで拾ってここから `SC_KEYMENU` を送る（docs/adr/0003 参照）
+#[cfg(windows)]
+#[tauri::command]
+fn open_menu(window: tauri::WebviewWindow, key: char) -> Result<(), String> {
+    use windows::Win32::{
+        Foundation::{LPARAM, WPARAM},
+        UI::WindowsAndMessaging::{PostMessageW, SC_KEYMENU, WM_SYSCOMMAND},
+    };
+    let hwnd = window.hwnd().map_err(|e| e.to_string())?;
+    unsafe {
+        PostMessageW(
+            Some(hwnd),
+            WM_SYSCOMMAND,
+            WPARAM(SC_KEYMENU as usize),
+            LPARAM(key.to_ascii_lowercase() as isize),
+        )
+    }
+    .map_err(|e| e.to_string())
+}
+
+#[cfg(not(windows))]
+#[tauri::command]
+fn open_menu(_key: char) {}
+
 #[tauri::command]
 fn initial_file(state: State<LaunchFile>) -> Option<String> {
     state.0.lock().unwrap().take()
@@ -571,6 +597,7 @@ pub fn run() {
             preview_pdf,
             save_preview_pdf,
             open_help,
+            open_menu,
             install_update
         ])
         .run(tauri::generate_context!())

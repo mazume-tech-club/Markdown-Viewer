@@ -60,6 +60,8 @@ button {
 }
 button:hover { background: var(--btn-hover); }
 #toolbar .spacer { flex: 1; }
+/* 「パスをコピーしました」「PDF を作成中…」などの一時的な表示 */
+.toolbar-status { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 /* タブ（開いているファイル）。多いときは横にスクロール */
 #tabs {

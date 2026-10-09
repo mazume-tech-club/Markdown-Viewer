@@ -7,18 +7,7 @@
   </head>
   <body>
     <header id="toolbar">
-      <button id="btn-new" title="新規 (Ctrl+N)">新規</button>
-      <button id="btn-open" title="開く (Ctrl+O)">開く</button>
-      <button id="btn-open-path" title="パスを入力・貼り付けして開く (Ctrl+Shift+O)">パスで開く</button>
-      <button id="btn-save" title="保存 (Ctrl+S)">保存</button>
-      <button id="btn-save-as" title="名前を付けて保存 (Ctrl+Shift+S)">名前を付けて保存</button>
-      <button id="btn-copy-path" title="開いているファイルのパスをコピー (Ctrl+Shift+C)">パスをコピー</button>
-      <button id="btn-pdf" title="PDF に出力 (Ctrl+P)">PDF</button>
-      <button id="btn-export" title="MD と画像を 1 つのフォルダにまとめて書き出す">エクスポート</button>
-      <button id="btn-builder" title="図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す）。カーソルが画像の行なら画像の注釈 (Ctrl+Shift+D)">図</button>
-      <button id="btn-settings" title="設定 (Ctrl+,)">設定</button>
-      <button id="btn-help" title="書き方ヘルプ (F1)">ヘルプ</button>
-      <button id="btn-theme" title="テーマ（自動 / ライト / ダーク）">自動</button>
+      <span id="toolbar-status" class="toolbar-status" role="status" aria-live="polite"></span>
       <span class="spacer"></span>
       <button id="btn-files" title="ファイルパネル (Ctrl+B)" hidden>ファイル</button>
       <button id="zoom-label" class="zoom-label" title="ズーム（Ctrl+ホイール / Ctrl+＋− / クリックで 100%）">100%</button>
@@ -94,7 +83,7 @@
               <option value="dark">ダーク</option>
             </select>
           </label>
-          <label class="settings-row" title="オフにすると、ツールバーのボタンと Ctrl+B も使えなくなります"><input id="set-files" type="checkbox" /> ファイルパネルを使う</label>
+          <label class="settings-row" title="オフにすると、ツールバーのボタン・メニューと Ctrl+B も使えなくなります"><input id="set-files" type="checkbox" /> ファイルパネルを使う</label>
           <label class="settings-row" title="ファイルパネルの下部に出す件数。0 にすると一覧を出しません">
             <span class="grow">最近使ったフォルダの表示件数</span>
             <input id="set-recent-count" type="number" min="0" max="20" step="1" />
@@ -113,7 +102,6 @@
           <h3>更新</h3>
           <div class="settings-row">
             <span id="app-version" class="grow version">Markdown Preview</span>
-            <button id="btn-check-update" title="GitHub の最新リリースを確認">更新を確認</button>
           </div>
           <label class="settings-row"><input id="auto-update" type="checkbox" /> 起動時に自動で更新を確認</label>
           <label class="settings-row" title="オフにすると、更新前に未保存の変更を破棄するか確認します"><input id="keep-draft" type="checkbox" /> 更新時、未保存の変更を再起動後に復元</label>
@@ -121,7 +109,7 @@
       </div>
     </div>
     <div id="preview-menu" class="files-menu" role="menu" hidden>
-      <button data-action="view" role="menuitem" title="ウィンドウいっぱいに出して拡大縮小・移動しながら見る（ダブルクリックでも開く）">拡大して見る</button>
+      <button data-action="view" role="menuitem" title="ウィンドウいっぱいに出して拡大縮小・移動しながら見る（クリックでも開く）">拡大して見る</button>
       <button data-action="annotate" role="menuitem" title="矢印・テキスト・枠・番号を画像に重ねる (Ctrl+Shift+A)">注釈を編集…</button>
     </div>
     <div id="viewer" class="viewer" role="dialog" aria-modal="true" aria-label="拡大ビューア" hidden>
