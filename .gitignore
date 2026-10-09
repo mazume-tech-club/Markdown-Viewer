@@ -3,3 +3,9 @@ dist/
 *.lnk
 src-tauri/icons/android/
 src-tauri/icons/ios/
+out/
+# 共同編集（feature/collab-stage1）の生成物。ブランチを切り替えると残る
+collab-plugin/target/
+relay/.wrangler/
+relay/.dev.vars
+relay/worker-configuration.d.ts

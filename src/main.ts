@@ -1,4 +1,4 @@
-import { THEME_LABEL, darkQuery, getThemePref, setThemePref, type ThemePref } from "./theme";
+import { darkQuery, getThemePref, setThemePref, type ThemePref } from "./theme";
 import "./styles.css";
 
 import { invoke, convertFileSrc } from "@tauri-apps/api/core";
@@ -33,8 +33,7 @@ import {
 import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft, setupUpdater } from "./updater";
 import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, mdLink, normalizeInputPath, resolvePath, safeDecode } from "./paths";
 import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
-
-type Mode = "editor" | "split" | "preview";
+import { MENU_KEYS, setupMenuBar, type Mode } from "./menubar";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const main = $("main");
@@ -44,6 +43,7 @@ const banner = $("banner");
 const tabBar = $("tabs");
 const dropzone = $("dropzone");
 const appWindow = getCurrentWindow();
+const toolbarStatus = $("toolbar-status");
 
 const state = {
   mode: (localStorage.getItem("mode") as Mode) || "preview",
@@ -53,6 +53,70 @@ const state = {
   /** 更新のダウンロード中は編集もファイルの切り替えもさせない（退避した内容とずれるため） */
   updating: false,
 };
+
+// ---------- メニューバー ----------
+// 項目から呼ぶ関数はこのファイルの後ろで定義する（クリックされた時点ではすべて揃っている）
+
+/** エディタを使う操作。プレビューのみの表示なら分割にしてから行う */
+const withEditor = (fn: () => void) => {
+  if (state.mode === "preview") setMode("split");
+  fn();
+};
+
+const menuBar = setupMenuBar(
+  {
+    newFile: () => void newFile(),
+    open: () => void openWithPrompt(),
+    openPath: () => openPathPrompt(),
+    save: () => void saveFile(),
+    saveAs: () => void saveFile(true),
+    pdf: () => void previewPdf(),
+    exportTab: () => void exportTab(),
+    copyPath: () => void copyPath(),
+    closeTab: () => void closeTab(active),
+    quit: () => void appWindow.close(),
+    undo: () => withEditor(() => editor.undo()),
+    redo: () => withEditor(() => editor.redo()),
+    find: () => withEditor(() => editor.openSearch(false)),
+    replace: () => withEditor(() => editor.openSearch(true)),
+    selectNextMatch: () => withEditor(() => editor.selectNextMatch()),
+    selectAllMatches: () => withEditor(() => editor.selectAllMatches()),
+    setMode: (mode) => setMode(mode),
+    toggleFilePanel: () => filePanel.toggle(),
+    zoomIn: () => changeZoom(focusedTarget(), 0.1),
+    zoomOut: () => changeZoom(focusedTarget(), -0.1),
+    zoomReset: () => changeZoom(focusedTarget(), null),
+    setTheme: (pref) => void changeTheme(pref),
+    reload: () => void reloadTab(active),
+    diagram: () => void openDiagramTool(),
+    annotate: () => void annotator.open(),
+    settings: () => openSettings(),
+    help: () => void openHelp(),
+    checkUpdate: () => void checkForUpdate(true),
+    about: () => void showAbout(),
+  },
+  {
+    mode: state.mode,
+    theme: getThemePref(),
+    filePanelOpen: false,
+    filePanelEnabled: isFilePanelEnabled(),
+    canCopyPath: false,
+    modal: false,
+  },
+);
+void menuBar.ready.catch(showError);
+
+/** ツールバーの左に一時的なメッセージを出す（「パスをコピーしました」など）。ms が 0 なら次に呼ぶまで出したまま */
+let statusTimer = 0;
+function showStatus(text: string, ms = 1500) {
+  clearTimeout(statusTimer);
+  toolbarStatus.textContent = text;
+  if (ms) statusTimer = window.setTimeout(() => (toolbarStatus.textContent = ""), ms);
+}
+
+async function showAbout() {
+  await message(`Markdown Preview v${await getVersion()}`, { title: "バージョン情報", kind: "info" });
+}
 
 /** 保存待ちの画像（貼り付けた画像・注釈の焼き込み画像）。link は MD に書いたリンク（省略時は mdLink(相対パス)） */
 type PendingImage = { bytes: Uint8Array; url: string; link?: string };
@@ -218,6 +282,7 @@ function setMode(mode: Mode) {
   for (const b of document.querySelectorAll<HTMLButtonElement>("[data-mode]")) {
     b.classList.toggle("active", b.dataset.mode === mode);
   }
+  menuBar.setMode(mode);
   markCursorLine();
   if (mode !== "preview") editor.view.focus();
   if (!cursor) return;
@@ -360,24 +425,20 @@ newTabButton.title = "新しいタブ (Ctrl+N)";
 function updateTitle() {
   void appWindow.setTitle(`${tabName(active)}${active.dirty ? " •" : ""} - Markdown Preview`);
   // 無題（まだ保存していない）ならパスがないのでコピーできない
-  copyPathBtn.disabled = !active.path;
+  menuBar.setCanCopyPath(!!active.path);
   filePanel.setActive(active.path);
 }
 
-const copyPathBtn = $<HTMLButtonElement>("btn-copy-path");
 /** 表示中のタブのファイルのパスをクリップボードにコピーする */
 async function copyPath() {
   if (!active.path) return;
   try {
     await navigator.clipboard.writeText(active.path);
-    const label = "パスをコピー";
-    copyPathBtn.textContent = "コピーしました";
-    setTimeout(() => (copyPathBtn.textContent = label), 1500);
+    showStatus("パスをコピーしました");
   } catch (err) {
     await showError(err);
   }
 }
-copyPathBtn.addEventListener("click", () => copyPath());
 
 function renderTabs() {
   tabBar.replaceChildren(
@@ -571,6 +632,7 @@ const filePanel = setupFilePanel({
   // 前回開いたままならタブを作る前に呼ばれるので、まだ active がないことがある
   activePath: () => active?.path ?? null,
   onClose: () => (state.mode === "preview" ? previewPane.focus() : editor.view.focus()),
+  onOpenChange: (open) => menuBar.setFilePanel(open, isFilePanelEnabled()),
 });
 
 async function openWithPrompt() {
@@ -641,7 +703,6 @@ openPathInput.addEventListener("keydown", (e) => {
 openPathInput.addEventListener("input", () => (openPathError.hidden = true));
 // 入力欄の外（背景）をクリックしたら閉じる
 openPathOverlay.addEventListener("click", (e) => e.target === openPathOverlay && closeOpenPath());
-$("btn-open-path").addEventListener("click", () => openPathPrompt());
 
 /** ディスクから読み直す。force なら未保存の変更を確認せずに捨てる（バナーの「再読み込み」） */
 async function reloadTab(tab: Tab, force = false) {
@@ -823,13 +884,6 @@ $("banner-ignore").addEventListener("click", () => {
   active.externalChange = false;
   banner.hidden = true;
 });
-$("btn-new").addEventListener("click", () => newFile());
-$("btn-open").addEventListener("click", () => openWithPrompt());
-$("btn-save").addEventListener("click", () => saveFile());
-$("btn-save-as").addEventListener("click", () => saveFile(true));
-$("btn-pdf").addEventListener("click", () => previewPdf());
-$("btn-settings").addEventListener("click", () => openSettings());
-$("btn-help").addEventListener("click", () => openHelp());
 
 // 図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す）
 const builder = setupBuilder({
@@ -858,7 +912,6 @@ const annotator = setupAnnotator({
 
 /** 「図」: カーソルが画像の行にあれば注釈エディタ、それ以外は図のビルダー */
 const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
-$("btn-builder").addEventListener("click", () => openDiagramTool());
 
 // プレビューの画像を右クリック →「注釈を編集」
 const previewMenu = $("preview-menu");
@@ -897,19 +950,13 @@ async function openHelp() {
 
 // ---------- テーマ ----------
 
-const themeBtn = $<HTMLButtonElement>("btn-theme");
-const THEME_ORDER: ThemePref[] = ["system", "light", "dark"];
-function updateThemeButton() {
-  const pref = getThemePref();
-  themeBtn.textContent = `${pref === "dark" ? "☾" : pref === "light" ? "☀" : "◐"} ${THEME_LABEL[pref]}`;
+/** テーマを変える。ウィンドウのテーマも変わるので、メニューバーの色もそれに合わせて変わる */
+async function changeTheme(pref: ThemePref) {
+  await setThemePref(pref);
+  menuBar.setTheme(pref);
 }
-themeBtn.addEventListener("click", async () => {
-  const next = THEME_ORDER[(THEME_ORDER.indexOf(getThemePref()) + 1) % THEME_ORDER.length];
-  await setThemePref(next);
-  updateThemeButton();
-});
-window.addEventListener("storage", (e) => e.key === "theme" && updateThemeButton());
-updateThemeButton();
+// ヘルプウィンドウで変更されたとき
+window.addEventListener("storage", (e) => e.key === "theme" && menuBar.setTheme(getThemePref()));
 
 // ---------- 設定 ----------
 // 設定は localStorage に保存する。storage イベントは同じウィンドウでは発火しないので、
@@ -947,10 +994,7 @@ void getVersion().then((v) => ($("app-version").textContent = `Markdown Preview 
 $("settings-close").addEventListener("click", () => closeSettings());
 // パネルの外（背景）をクリックしたら閉じる
 settingsOverlay.addEventListener("click", (e) => e.target === settingsOverlay && closeSettings());
-setTheme.addEventListener("change", async () => {
-  await setThemePref(setTheme.value as ThemePref);
-  updateThemeButton();
-});
+setTheme.addEventListener("change", () => changeTheme(setTheme.value as ThemePref));
 followCursorIn.addEventListener("change", () => {
   setFollowCursorEnabled(followCursorIn.checked);
   syncPreviewToEditor();
@@ -968,7 +1012,10 @@ $("active-line-reset").addEventListener("click", () => {
   activeLineColor.value = getActiveLineColor();
   applyActiveLineColor();
 });
-setFiles.addEventListener("change", () => filePanel.setEnabled(setFiles.checked));
+setFiles.addEventListener("change", () => {
+  filePanel.setEnabled(setFiles.checked);
+  menuBar.setFilePanel(filePanel.isOpen(), isFilePanelEnabled());
+});
 // 入力途中（空欄など）は反映せず、範囲外は上限・下限に丸めて入力欄にも戻す
 setRecentCount.addEventListener("change", () => {
   const n = Number(setRecentCount.value);
@@ -981,14 +1028,9 @@ setRecentCount.addEventListener("change", () => {
 });
 autoUpdate.addEventListener("change", () => setAutoCheck(autoUpdate.checked));
 keepDraft.addEventListener("change", () => setKeepDraft(keepDraft.checked));
-// 確認結果のバナーやダイアログが見えるよう、先に設定画面を閉じる
-$("btn-check-update").addEventListener("click", () => {
-  closeSettings();
-  void checkForUpdate(true);
-});
 
 // ---------- バージョンアップ ----------
-// 起動時に自動確認（設定で切り替え可）。設定の「更新を確認」からも呼ばれる。
+// 起動時に自動確認（設定で切り替え可）。メニューの ヘルプ →「更新を確認」からも呼ばれる。
 // 更新するとアプリは終了してインストール後に再起動されるので、開いていたファイルと
 // （設定がオンなら）未保存の変更を退避し、再起動後に復元する
 
@@ -1209,19 +1251,20 @@ async function exportTab() {
   }
 }
 
-$("btn-export").addEventListener("click", () => exportTab());
 
 // ---------- PDF（プレビュー → 保存） ----------
 
 const pdfOverlay = $("pdf-preview");
 const pdfFrame = $<HTMLIFrameElement>("pdf-frame");
 
+/** PDF を作成中か（作成中にもう一度呼ばれても作らない） */
+let pdfBusy = false;
+
 /** PDF を一時ファイルに作ってプレビュー表示する（ダークモードでも白地・ライト配色） */
 async function previewPdf() {
-  const btn = $<HTMLButtonElement>("btn-pdf");
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.textContent = "作成中…";
+  if (pdfBusy) return;
+  pdfBusy = true;
+  showStatus("PDF を作成中…", 0);
   try {
     if (darkQuery.matches) {
       state.forceLight = true;
@@ -1234,8 +1277,8 @@ async function previewPdf() {
   } catch (err) {
     await showError(err);
   } finally {
-    btn.disabled = false;
-    btn.textContent = "PDF";
+    pdfBusy = false;
+    showStatus("");
     if (state.forceLight) {
       state.forceLight = false;
       void render();
@@ -1290,6 +1333,17 @@ preview.addEventListener("click", async (e) => {
   else await revealItemInDir(target).catch(showError);
 });
 
+// ---------- ダイアログ表示中のメニュー ----------
+// 設定・PDF・パスで開く・図のビルダー・画像の注釈を開いている間は、メニューバーを丸ごと灰色にする
+
+const isModal = () =>
+  !settingsOverlay.hidden || !pdfOverlay.hidden || !openPathOverlay.hidden || annotator.isOpen() || builder.isOpen();
+new MutationObserver(() => menuBar.setModal(isModal())).observe(document.body, {
+  subtree: true,
+  attributes: true,
+  attributeFilter: ["hidden"],
+});
+
 // ---------- キーボード ----------
 
 window.addEventListener(
@@ -1311,7 +1365,10 @@ window.addEventListener(
       if (e.key === "Escape") run(() => builder.close());
       return;
     }
-    if (!pdfOverlay.hidden && e.key === "Escape") run(() => closePdfPreview());
+    // Alt+F などでメニューを開く。エディタにフォーカスがあると Windows に届かないので、ここから開く（docs/adr/0003）
+    if (e.altKey && !mod && !e.shiftKey && MENU_KEYS.includes(key)) {
+      if (!isModal()) run(() => invoke("open_menu", { key }).catch(showError));
+    } else if (!pdfOverlay.hidden && e.key === "Escape") run(() => closePdfPreview());
     else if (mod && e.shiftKey && key === "d") run(() => openDiagramTool());
     else if (mod && e.shiftKey && key === "a") run(() => annotator.open());
     else if (mod && e.shiftKey && key === "c") run(() => copyPath());
