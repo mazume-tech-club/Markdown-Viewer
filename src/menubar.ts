@@ -78,19 +78,24 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     update({});
   };
 
+  type Entry = MenuItem | PredefinedMenuItem | CheckMenuItem | Submenu;
+  /** サブメニュー。項目の作成（1 つずつ Rust を呼ぶ）を順に待たず、まとめて並行に作る */
+  const sub = async (text: string, items: (Entry | Promise<Entry | Entry[]>)[]) =>
+    Submenu.new({ text, items: (await Promise.all(items)).flat() });
+
   const ready = (async () => {
-    const copyPath = await item("パスをコピー", "Ctrl+Shift+C", actions.copyPath);
-    const modeItems = await Promise.all(
+    const copyPath = item("パスをコピー", "Ctrl+Shift+C", actions.copyPath);
+    const modeItems = Promise.all(
       MODES.map(([mode, text, keys]) =>
         CheckMenuItem.new({ text: label(text, keys), checked: mode === state.mode, action: () => checked(() => actions.setMode(mode)) }),
       ),
     );
-    const themeItems = await Promise.all(
+    const themeItems = Promise.all(
       THEMES.map(([pref, text]) =>
         CheckMenuItem.new({ text, checked: pref === state.theme, action: () => checked(() => actions.setTheme(pref)) }),
       ),
     );
-    const filePanel = await CheckMenuItem.new({
+    const filePanel = CheckMenuItem.new({
       text: label("ファイルパネル", "Ctrl+B"),
       checked: state.filePanelOpen,
       enabled: state.filePanelEnabled,
@@ -98,84 +103,66 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     });
 
     const top = await Promise.all([
-      Submenu.new({
-        text: "ファイル(&F)",
-        items: [
-          await item("新規", "Ctrl+N", actions.newFile),
-          await item("開く…", "Ctrl+O", actions.open),
-          await item("パスで開く…", "Ctrl+Shift+O", actions.openPath),
-          await sep(),
-          await item("保存", "Ctrl+S", actions.save),
-          await item("名前を付けて保存…", "Ctrl+Shift+S", actions.saveAs),
-          await sep(),
-          await item("PDF に出力…", "Ctrl+P", actions.pdf),
-          await item("エクスポート…", undefined, actions.exportTab),
-          await sep(),
-          copyPath,
-          await sep(),
-          await item("タブを閉じる", "Ctrl+W", actions.closeTab),
-          await item("終了", "Alt+F4", actions.quit),
-        ],
-      }),
-      Submenu.new({
-        text: "編集(&E)",
-        items: [
-          await item("元に戻す", "Ctrl+Z", actions.undo),
-          await item("やり直し", "Ctrl+Y", actions.redo),
-          await sep(),
-          // 切り取り・コピー・貼り付けは、フォーカスのある所（エディタ・プレビュー・入力欄）にキーを送る既定の項目
-          await PredefinedMenuItem.new({ item: "Cut", text: "切り取り" }),
-          await PredefinedMenuItem.new({ item: "Copy", text: "コピー" }),
-          await PredefinedMenuItem.new({ item: "Paste", text: "貼り付け" }),
-          await PredefinedMenuItem.new({ item: "SelectAll", text: "すべて選択" }),
-          await sep(),
-          await item("検索", "Ctrl+F", actions.find),
-          await item("置換", "Ctrl+H", actions.replace),
-          await sep(),
-          await item("次の一致を選択に追加", "Ctrl+D", actions.selectNextMatch),
-          await item("すべての一致を選択", "Ctrl+Shift+L", actions.selectAllMatches),
-        ],
-      }),
-      Submenu.new({
-        text: "表示(&V)",
-        items: [
-          ...modeItems,
-          await sep(),
-          filePanel,
-          await sep(),
-          await item("拡大", "Ctrl++", actions.zoomIn),
-          await item("縮小", "Ctrl+-", actions.zoomOut),
-          await item("100% に戻す", "Ctrl+0", actions.zoomReset),
-          await sep(),
-          await Submenu.new({ text: "テーマ", items: themeItems }),
-          await sep(),
-          await item("再読み込み", "F5", actions.reload),
-        ],
-      }),
-      Submenu.new({
-        text: "挿入(&I)",
-        items: [
-          await item("図…", "Ctrl+Shift+D", actions.diagram),
-          await item("画像の注釈…", "Ctrl+Shift+A", actions.annotate),
-        ],
-      }),
-      Submenu.new({
-        text: "ツール(&T)",
-        items: [await item("設定…", "Ctrl+,", actions.settings)],
-      }),
-      Submenu.new({
-        text: "ヘルプ(&H)",
-        items: [
-          await item("書き方ヘルプ", "F1", actions.help),
-          await sep(),
-          await item("更新を確認", undefined, actions.checkUpdate),
-          await item("バージョン情報", undefined, actions.about),
-        ],
-      }),
+      sub("ファイル(&F)", [
+        item("新規", "Ctrl+N", actions.newFile),
+        item("開く…", "Ctrl+O", actions.open),
+        item("パスで開く…", "Ctrl+Shift+O", actions.openPath),
+        sep(),
+        item("保存", "Ctrl+S", actions.save),
+        item("名前を付けて保存…", "Ctrl+Shift+S", actions.saveAs),
+        sep(),
+        item("PDF に出力…", "Ctrl+P", actions.pdf),
+        item("エクスポート…", undefined, actions.exportTab),
+        sep(),
+        copyPath,
+        sep(),
+        item("タブを閉じる", "Ctrl+W", actions.closeTab),
+        item("終了", "Alt+F4", actions.quit),
+      ]),
+      sub("編集(&E)", [
+        item("元に戻す", "Ctrl+Z", actions.undo),
+        item("やり直し", "Ctrl+Y", actions.redo),
+        sep(),
+        // 切り取り・コピー・貼り付けは、フォーカスのある所（エディタ・プレビュー・入力欄）にキーを送る既定の項目
+        PredefinedMenuItem.new({ item: "Cut", text: "切り取り" }),
+        PredefinedMenuItem.new({ item: "Copy", text: "コピー" }),
+        PredefinedMenuItem.new({ item: "Paste", text: "貼り付け" }),
+        PredefinedMenuItem.new({ item: "SelectAll", text: "すべて選択" }),
+        sep(),
+        item("検索", "Ctrl+F", actions.find),
+        item("置換", "Ctrl+H", actions.replace),
+        sep(),
+        item("次の一致を選択に追加", "Ctrl+D", actions.selectNextMatch),
+        item("すべての一致を選択", "Ctrl+Shift+L", actions.selectAllMatches),
+      ]),
+      sub("表示(&V)", [
+        modeItems,
+        sep(),
+        filePanel,
+        sep(),
+        item("拡大", "Ctrl++", actions.zoomIn),
+        item("縮小", "Ctrl+-", actions.zoomOut),
+        item("100% に戻す", "Ctrl+0", actions.zoomReset),
+        sep(),
+        sub("テーマ", [themeItems]),
+        sep(),
+        item("再読み込み", "F5", actions.reload),
+      ]),
+      sub("挿入(&I)", [
+        item("図…", "Ctrl+Shift+D", actions.diagram),
+        item("画像の注釈…", "Ctrl+Shift+A", actions.annotate),
+      ]),
+      sub("ツール(&T)", [item("設定…", "Ctrl+,", actions.settings)]),
+      sub("ヘルプ(&H)", [
+        item("書き方ヘルプ", "F1", actions.help),
+        sep(),
+        item("更新を確認", undefined, actions.checkUpdate),
+        item("バージョン情報", undefined, actions.about),
+      ]),
     ]);
     const menu = await Menu.new({ items: top });
     await menu.setAsWindowMenu(getCurrentWindow());
-    return { top, copyPath, modeItems, themeItems, filePanel };
+    return { top, copyPath: await copyPath, modeItems: await modeItems, themeItems: await themeItems, filePanel: await filePanel };
   })();
 
   /** 今の state をメニューに映す（チェックは毎回すべて付け直す） */

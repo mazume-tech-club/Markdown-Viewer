@@ -38,6 +38,8 @@ export interface Editor {
   imageAtCursor(): ImageRef | null;
   /** 0 始まりの行・列にカーソルを置く */
   setCursor(line: number, ch: number): void;
+  /** 0 始まりの行・列にカーソルを置き、その行を表示領域の上端から top px の高さに出してフォーカスする */
+  placeCursor(line: number, ch: number, top: number): void;
   /** 検索パネルを開く。replace なら置換の入力欄にフォーカスする */
   openSearch(replace: boolean): void;
   /** 選択中の文字列の次の一致を選択に加える（Ctrl+D） */
@@ -313,6 +315,14 @@ export function createEditor(
       const doc = view.state.doc;
       const l = doc.line(Math.max(1, Math.min(line + 1, doc.lines)));
       view.dispatch({ selection: { anchor: Math.min(l.from + ch, l.to) }, scrollIntoView: true });
+    },
+    placeCursor(line, ch, top) {
+      const doc = view.state.doc;
+      const l = doc.line(Math.max(1, Math.min(line + 1, doc.lines)));
+      const pos = Math.min(l.from + ch, l.to);
+      const yMargin = Math.max(0, top - view.defaultLineHeight / 2);
+      view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: "start", yMargin }) });
+      view.focus();
     },
     openSearch(replace) {
       view.focus();
