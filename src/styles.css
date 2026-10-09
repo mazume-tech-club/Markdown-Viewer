@@ -699,4 +699,10 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
   .markdown-body h1, .markdown-body h2, .markdown-body h3 { break-after: avoid; }
   .markdown-body .active-line { background-image: none; box-shadow: none; }
   .markdown-body .code-copy { display: none; }
+  /* 画面でははみ出すと横スクロールになるコードブロックと表を、紙ではページ幅で折り返す（切れて読めなくならないように）。
+     テーマの CSS は後から <style> で足すので、同じ強さだと負ける。#preview-pane を付けて強くする */
+  #preview-pane .markdown-body pre { overflow: visible; white-space: pre-wrap; overflow-wrap: anywhere; }
+  #preview-pane .markdown-body pre code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  #preview-pane .markdown-body table { display: table; width: auto; max-width: 100%; overflow: visible; }
+  #preview-pane .markdown-body td, #preview-pane .markdown-body th { overflow-wrap: anywhere; }
 }
