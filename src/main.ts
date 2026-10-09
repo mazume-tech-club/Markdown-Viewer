@@ -25,7 +25,9 @@ import {
   getActiveLineColor,
   isActiveLineEnabled,
   isFollowCursorEnabled,
+  isSelectCopyEnabled,
   setFollowCursorEnabled,
+  setSelectCopyEnabled,
   setActiveLineColor,
   setActiveLineEnabled,
 } from "./prefs";
@@ -34,6 +36,7 @@ import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, mdLink, norma
 import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
 import { MENU_KEYS, setupMenuBar, type Mode } from "./menubar";
 import { findSourcePos, type SourcePos } from "./sourcepos";
+import { setupSelectCopy } from "./selectcopy";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const main = $("main");
@@ -1083,6 +1086,7 @@ const settingsOverlay = $("settings");
 const setTheme = $<HTMLSelectElement>("set-theme");
 const activeLine = $<HTMLInputElement>("active-line");
 const followCursorIn = $<HTMLInputElement>("follow-cursor");
+const selectCopyIn = $<HTMLInputElement>("select-copy");
 const activeLineColor = $<HTMLInputElement>("active-line-color");
 const autoUpdate = $<HTMLInputElement>("auto-update");
 const keepDraft = $<HTMLInputElement>("keep-draft");
@@ -1094,6 +1098,7 @@ function openSettings() {
   setTheme.value = getThemePref();
   activeLine.checked = isActiveLineEnabled();
   followCursorIn.checked = isFollowCursorEnabled();
+  selectCopyIn.checked = isSelectCopyEnabled();
   activeLineColor.value = getActiveLineColor();
   autoUpdate.checked = isAutoCheckEnabled();
   keepDraft.checked = isKeepDraftEnabled();
@@ -1116,6 +1121,7 @@ followCursorIn.addEventListener("change", () => {
   setFollowCursorEnabled(followCursorIn.checked);
   syncPreviewToEditor();
 });
+selectCopyIn.addEventListener("change", () => setSelectCopyEnabled(selectCopyIn.checked));
 activeLine.addEventListener("change", () => {
   setActiveLineEnabled(activeLine.checked);
   markCursorLine();
@@ -1429,6 +1435,15 @@ $("pdf-save").addEventListener("click", () => savePdf());
 $("pdf-close").addEventListener("click", () => closePdfPreview());
 
 // ---------- リンク ----------
+
+// 選択で自動コピー・右クリックで貼り付け（Tera Term と同じ操作。設定でオフにできる）
+setupSelectCopy({
+  editor,
+  preview,
+  enabled: isSelectCopyEnabled,
+  notify: (text) => showStatus(text),
+  onError: (err) => void showError(err),
+});
 
 // コードブロックのコピーボタン
 preview.addEventListener("click", async (e) => {

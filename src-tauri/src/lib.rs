@@ -575,6 +575,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             // メインウィンドウは隠して作り、JS が最初の表示を整えてから出す（tauri.conf.json の visible: false）。
             // JS が動かなかったときに出ないままにならないよう、しばらく待っても隠れていれば出す

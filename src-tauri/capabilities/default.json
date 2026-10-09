@@ -20,6 +20,8 @@
     "opener:allow-reveal-item-in-dir",
     "updater:default",
     "process:allow-restart",
+    "clipboard-manager:allow-read-text",
+    "clipboard-manager:allow-write-text",
     "core:app:allow-version"
   ]
 }
