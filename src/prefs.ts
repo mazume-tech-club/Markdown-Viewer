@@ -13,6 +13,11 @@ const FOLLOW_KEY = "followCursor";
 export const isFollowCursorEnabled = () => localStorage.getItem(FOLLOW_KEY) !== "0";
 export const setFollowCursorEnabled = (on: boolean) => localStorage.setItem(FOLLOW_KEY, on ? "1" : "0");
 
+// 選択したら自動でコピー・右クリックで貼り付け（Tera Term と同じ操作）
+const SELECT_COPY_KEY = "selectCopy";
+export const isSelectCopyEnabled = () => localStorage.getItem(SELECT_COPY_KEY) !== "0";
+export const setSelectCopyEnabled = (on: boolean) => localStorage.setItem(SELECT_COPY_KEY, on ? "1" : "0");
+
 export const getActiveLineColor = () => localStorage.getItem(ACTIVE_LINE_COLOR_KEY) || DEFAULT_ACTIVE_LINE_COLOR;
 
 export function setActiveLineColor(color: string | null) {
