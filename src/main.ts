@@ -879,17 +879,18 @@ const annotator = setupAnnotator({
 const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
 $("btn-builder").addEventListener("click", () => openDiagramTool());
 
-// プレビューの図や画像をダブルクリック、または右クリック →「拡大して見る」で拡大ビューアを開く
+// プレビューの図や画像をクリック、または右クリック →「拡大して見る」で拡大ビューアを開く
 const viewer = setupViewer();
 function openViewer(el: HTMLElement | SVGSVGElement) {
   if (!viewer.open(el)) void message("画像を読み込めていないため、拡大して見られません。", { title: "拡大ビューア", kind: "warning" });
 }
-preview.addEventListener("dblclick", (e) => {
+preview.addEventListener("click", (e) => {
+  // リンクの付いた画像・図の中のリンクは、リンクを優先する
+  if ((e.target as Element).closest("a")) return;
+  // 文字を選ぶドラッグが図の上で終わったときは開かない
+  if (!window.getSelection()?.isCollapsed) return;
   const el = viewableAt(e.target);
   if (!el) return;
-  e.preventDefault();
-  // ダブルクリックで選ばれた文字の選択を外す
-  window.getSelection()?.removeAllRanges();
   openViewer(el);
 });
 

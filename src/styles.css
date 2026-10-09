@@ -311,6 +311,9 @@ button:hover { background: var(--btn-hover); }
 }
 .diagram:not(.done):not(.failed) .diagram-src { opacity: 0.4; }
 .diagram.done svg { max-width: 100%; height: auto; }
+/* クリックで拡大ビューアを開けることを示す。リンクの付いたものはリンクを優先する */
+.diagram.done svg, .markdown-body img { cursor: zoom-in; }
+.diagram.done svg a, .markdown-body a img { cursor: pointer; }
 .diagram-src { text-align: left; }
 .diagram-error {
   color: var(--error);
