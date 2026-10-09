@@ -2,7 +2,7 @@ import MarkdownIt from "markdown-it";
 import anchor from "markdown-it-anchor";
 import footnote from "markdown-it-footnote";
 import taskLists from "markdown-it-task-lists";
-import hljs from "highlight.js/lib/common";
+import type { HLJSApi } from "highlight.js";
 import DOMPurify from "dompurify";
 import { commentSafe, parseAnnotation } from "./annotations";
 
@@ -27,11 +27,18 @@ export function slugify(s: string): string {
 const esc = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
+// コードの色分け（highlight.js）は大きいので、起動を待たせないよう後から読み込む。
+// 読み込むまでのコードブロックは色なしで出し、読み込めたら描画し直す（highlighterReady）
+let hljs: HLJSApi | null = null;
+export const highlighterReady: Promise<void> = import("highlight.js/lib/common").then((m) => {
+  hljs = m.default;
+});
+
 const md = new MarkdownIt({
   html: true,
   linkify: true,
   highlight(code, lang) {
-    if (lang && hljs.getLanguage(lang)) {
+    if (hljs && lang && hljs.getLanguage(lang)) {
       try {
         return hljs.highlight(code, { language: lang, ignoreIllegals: true }).value;
       } catch {

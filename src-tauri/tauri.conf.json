@@ -20,7 +20,8 @@
         "minWidth": 480,
         "minHeight": 320,
         "resizable": true,
-        "dragDropEnabled": true
+        "dragDropEnabled": true,
+        "visible": false
       },
       {
         "label": "help",

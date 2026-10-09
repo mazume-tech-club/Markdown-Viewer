@@ -11,15 +11,13 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { open as openDialog, save as saveDialog, ask, message } from "@tauri-apps/plugin-dialog";
 import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { findImageRefs, findImageSource, renderMarkdown } from "./render";
+import { findImageRefs, findImageSource, highlighterReady, renderMarkdown } from "./render";
 import { planImages, rewriteImageLinks } from "./export";
 import { fillCached, renderDiagrams } from "./diagrams";
 import { setupViewer, viewableAt } from "./viewer";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
 import { loadSession, saveSession } from "./session";
-import { setupBuilder } from "./builder/builder";
-import { setupAnnotator } from "./annotator/annotator";
 import { renderAnnotations } from "./annotations";
 import { findLineElement, setupScrollSync } from "./scrollsync";
 import {
@@ -918,15 +916,37 @@ $("banner-ignore").addEventListener("click", () => {
   banner.hidden = true;
 });
 
+/**
+ * 図のビルダー・注釈エディタは、初めて開くときに読み込む（起動時に読み込まないで済むように）。
+ * 読み込む前は閉じている扱い
+ */
+function lazyTool(load: () => Promise<{ open(): unknown; close(): void; isOpen(): boolean }>) {
+  let tool: Awaited<ReturnType<typeof load>> | null = null;
+  let loading: ReturnType<typeof load> | null = null;
+  return {
+    async open() {
+      try {
+        loading ??= load().then((t) => (tool = t));
+        await (await loading).open();
+      } catch (err) {
+        loading = null;
+        await showError(err);
+      }
+    },
+    close: () => tool?.close(),
+    isOpen: () => tool?.isOpen() ?? false,
+  };
+}
+
 // 図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す）
-const builder = setupBuilder({
+const builder = lazyTool(async () => (await import("./builder/builder")).setupBuilder({
   editor,
   isDark: () => darkQuery.matches,
   canEdit: () => !state.updating,
   onApplied: () => state.mode === "preview" && setMode("split"),
-});
+}));
 // 画像の注釈（矢印・テキスト・枠・番号を画像に重ねる）
-const annotator = setupAnnotator({
+const annotator = lazyTool(async () => (await import("./annotator/annotator")).setupAnnotator({
   editor,
   canEdit: () => !state.updating,
   mdPath: () => active.path,
@@ -941,7 +961,7 @@ const annotator = setupAnnotator({
     active.pendingImages.set(rel, { bytes, url, link });
   },
   onApplied: () => state.mode === "preview" && setMode("split"),
-});
+}));
 
 /** 「図」: カーソルが画像の行にあれば注釈エディタ、それ以外は図のビルダー */
 const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
@@ -1245,6 +1265,7 @@ async function restoreDraft(): Promise<boolean> {
   if (target) activate(target);
   await render();
   if (changed) {
+    showWindow();
     await message("更新前の未保存の変更を復元しました（まだ保存されていません）。", {
       title: "Markdown Preview",
       kind: "info",
@@ -1606,6 +1627,21 @@ async function restoreSession() {
   activate(restored[session.active] ?? opened[opened.length - 1]);
 }
 
+/**
+ * 起動時のウィンドウは隠して作り（tauri.conf.json の visible: false）、前回のタブとメニューバーが整ってから出す。
+ * 白い画面や、メニューバーが後から付いて表示がずれるのを見せないため。待ちすぎないよう 1.5 秒で必ず出す
+ */
+let windowShown = false;
+function showWindow() {
+  if (windowShown) return;
+  windowShown = true;
+  void appWindow
+    .show()
+    .then(() => appWindow.setFocus())
+    .catch(() => {});
+}
+setTimeout(showWindow, 1500);
+
 // 起動: 空のタブを 1 つ作り、更新前の退避 → 前回のタブ → 起動引数のファイルの順に開く
 active = makeTab(null, "");
 tabs.push(active);
@@ -1613,9 +1649,14 @@ editor.setState(active.doc);
 setMode(state.mode);
 renderTabs();
 void render();
+// コードの色分けを読み込めたら描き直す
+void highlighterReady.then(() => render());
 void (async () => {
   const initial = await invoke<string | null>("initial_file");
   if (!(await restoreDraft())) await restoreSession();
+  // メニューバーが付いてから出す（後から付くと本文の位置がずれるため）
+  await menuBar.ready.catch(() => {});
+  requestAnimationFrame(showWindow);
   if (initial) await openInTab(initial);
   sessionReady = true;
   persistSession();

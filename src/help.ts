@@ -9,7 +9,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import helpSource from "./help/help.md?raw";
-import { renderMarkdown } from "./render";
+import { highlighterReady, renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
 
 interface Item {
@@ -231,7 +231,10 @@ darkQuery.addEventListener("change", () => {
   filter();
 });
 
-build();
-applyZoom();
-if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+// 例の色分けが出るよう、highlight.js を読み込んでから組み立てる
+void highlighterReady.then(() => {
+  build();
+  applyZoom();
+  if (location.hash) document.getElementById(location.hash.slice(1))?.scrollIntoView();
+});
 search.focus();

@@ -563,6 +563,7 @@ pub fn run() {
         // 2つ目の起動は既存ウィンドウにファイルを渡して終了する
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
                 let _ = win.unminimize();
                 let _ = win.set_focus();
             }
@@ -574,6 +575,20 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .setup(|app| {
+            // メインウィンドウは隠して作り、JS が最初の表示を整えてから出す（tauri.conf.json の visible: false）。
+            // JS が動かなかったときに出ないままにならないよう、しばらく待っても隠れていれば出す
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+                if let Some(win) = handle.get_webview_window("main") {
+                    if !win.is_visible().unwrap_or(true) {
+                        let _ = win.show();
+                    }
+                }
+            });
+            Ok(())
+        })
         .manage(LaunchFile(Mutex::new(file_arg(&args, &cwd))))
         .manage(WatchState::default())
         .manage(PdfPreview::default())
