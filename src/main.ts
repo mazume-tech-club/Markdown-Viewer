@@ -35,6 +35,7 @@ import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, s
 import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, mdLink, normalizeInputPath, resolvePath, safeDecode } from "./paths";
 import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
 import { MENU_KEYS, setupMenuBar, type Mode } from "./menubar";
+import { findSourcePos, type SourcePos } from "./sourcepos";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const main = $("main");
@@ -45,6 +46,7 @@ const tabBar = $("tabs");
 const dropzone = $("dropzone");
 const appWindow = getCurrentWindow();
 const toolbarStatus = $("toolbar-status");
+const pathDisplay = $("path-display");
 
 const state = {
   mode: (localStorage.getItem("mode") as Mode) || "preview",
@@ -274,7 +276,14 @@ const editor = createEditor(
     followCursor();
   },
 );
-const syncPreviewToEditor = setupScrollSync(editor, previewPane, () => state.mode === "split", isFollowCursorEnabled);
+/** プレビューをクリックしてカーソルを移した直後は、プレビューを動かさない（クリックした箇所がマウスの下から逃げないように） */
+let holdPreviewUntil = 0;
+const syncPreviewToEditor = setupScrollSync(
+  editor,
+  previewPane,
+  () => state.mode === "split" && performance.now() > holdPreviewUntil,
+  isFollowCursorEnabled,
+);
 /** 分割表示で、プレビューのカーソル行の箇所をエディタのカーソルと同じ高さに表示する（設定でオフにできる） */
 function followCursor() {
   if (isFollowCursorEnabled()) syncPreviewToEditor();
@@ -446,7 +455,12 @@ function updateTitle() {
   // 無題（まだ保存していない）ならパスがないのでコピーできない
   menuBar.setCanCopyPath(!!active.path);
   filePanel.setActive(active.path);
+  // パス表示。右から左に並べて、入りきらないときはドライブ側を「…」で省く。
+  // 前後の LRM で、パスの記号が右から左の並びに引きずられないようにする
+  pathDisplay.hidden = !active.path;
+  pathDisplay.textContent = active.path ? `\u200e${active.path}\u200e` : "";
 }
+pathDisplay.addEventListener("click", () => copyPath());
 
 /** 表示中のタブのファイルのパスをクリップボードにコピーする */
 async function copyPath() {
@@ -946,6 +960,47 @@ preview.addEventListener("click", (e) => {
   if (!el) return;
   openViewer(el);
 });
+
+// 分割表示でプレビューをクリック → エディタのカーソルをクリックした文字の位置へ。プレビューは動かさず、
+// エディタのカーソル行をクリックした高さに出す。リンク・ボタン・図や画像・文字の選択はそれぞれの動作を優先する
+preview.addEventListener("click", (e) => {
+  if (state.mode !== "split" || e.button !== 0) return;
+  const target = e.target as Element;
+  if (target.closest("a, button, input") || viewableAt(target)) return;
+  if (!window.getSelection()?.isCollapsed) return;
+  const block = target.closest<HTMLElement>("[data-line]");
+  if (!block) return;
+  const pos = sourcePosAt(block, e.clientX, e.clientY);
+  holdPreviewUntil = performance.now() + 300;
+  editor.placeCursor(pos.line, pos.ch, e.clientY - editor.view.scrollDOM.getBoundingClientRect().top);
+});
+
+/** プレビューの (x, y) にある文字の、ソースの位置。文字が見つからなければブロックの先頭行 */
+function sourcePosAt(block: HTMLElement, x: number, y: number): SourcePos {
+  const from = Number(block.dataset.line);
+  const fallback = { line: from, ch: 0 };
+  const caret = caretAt(x, y);
+  if (!caret || caret.node.nodeType !== Node.TEXT_NODE || !block.contains(caret.node)) return fallback;
+  // ブロックの範囲は、次のブロックの先頭行まで
+  let to = Infinity;
+  for (const el of preview.querySelectorAll<HTMLElement>("[data-line]")) {
+    const l = Number(el.dataset.line);
+    if (l > from && l < to) to = l;
+  }
+  const lines = editor.view.state.doc.toJSON();
+  const before = document.createRange();
+  before.setStart(block, 0);
+  before.setEnd(caret.node, 0);
+  return findSourcePos(lines, from, Math.min(to, lines.length), caret.node.textContent ?? "", caret.offset, before.toString()) ?? fallback;
+}
+
+/** (x, y) にある文字の位置 */
+function caretAt(x: number, y: number): { node: Node; offset: number } | null {
+  const p = document.caretPositionFromPoint?.(x, y);
+  if (p) return { node: p.offsetNode, offset: p.offset };
+  const r = document.caretRangeFromPoint?.(x, y);
+  return r ? { node: r.startContainer, offset: r.startOffset } : null;
+}
 
 // プレビューの図や画像を右クリック →「拡大して見る」「注釈を編集」（注釈は画像だけ）
 const previewMenu = $("preview-menu");
@@ -1520,6 +1575,37 @@ void appWindow.onCloseRequested(async (e) => {
   await (await WebviewWindow.getByLabel("help"))?.destroy();
 });
 
+/**
+ * 前回開いていたタブを開き直す。ファイルはまとめて並行に読み、描画は最後に表示するタブだけにする
+ * （1 つずつ開くと、タブごとに読み込みを待って描画するので起動が遅くなる）
+ */
+async function restoreSession() {
+  const session = loadSession();
+  const files = await Promise.all(
+    session.paths.map(async (path) => {
+      try {
+        const text = await invoke<string>("read_file", { path });
+        // 相対パス画像を読めるよう、描画前に asset スコープを許可しておく（watch_file が行う）
+        await invoke("watch_file", { path });
+        return { path, text };
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const restored: (Tab | null)[] = files.map((f) => {
+    if (!f || tabs.some((t) => t.path && samePath(t.path, f.path))) return null;
+    const tab = makeTab(f.path, f.text);
+    tabs.push(tab);
+    return tab;
+  });
+  const opened = restored.filter((t): t is Tab => !!t);
+  if (!opened.length) return;
+  // 起動時の空のタブは、開いたタブに置き換える
+  if (isBlank(active)) tabs.splice(tabs.indexOf(active), 1);
+  activate(restored[session.active] ?? opened[opened.length - 1]);
+}
+
 // 起動: 空のタブを 1 つ作り、更新前の退避 → 前回のタブ → 起動引数のファイルの順に開く
 active = makeTab(null, "");
 tabs.push(active);
@@ -1529,13 +1615,7 @@ renderTabs();
 void render();
 void (async () => {
   const initial = await invoke<string | null>("initial_file");
-  if (!(await restoreDraft())) {
-    const session = loadSession();
-    const opened: (Tab | null)[] = [];
-    for (const path of session.paths) opened.push((await openInTab(path, true)) ? active : null);
-    const target = opened[session.active];
-    if (target) activate(target);
-  }
+  if (!(await restoreDraft())) await restoreSession();
   if (initial) await openInTab(initial);
   sessionReady = true;
   persistSession();

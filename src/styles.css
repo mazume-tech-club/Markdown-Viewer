@@ -62,6 +62,23 @@ button:hover { background: var(--btn-hover); }
 #toolbar .spacer { flex: 1; }
 /* 「パスをコピーしました」「PDF を作成中…」などの一時的な表示 */
 .toolbar-status { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* パス表示（今のタブのフルパス。クリックでコピー）。一時的な表示が出ている間は隠す */
+.path-display {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.path-display:hover { background: transparent; color: inherit; text-decoration: underline; }
+.toolbar-status:not(:empty) + .path-display { display: none; }
 
 /* タブ（開いているファイル）。多いときは横にスクロール */
 #tabs {
