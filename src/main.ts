@@ -14,6 +14,7 @@ import { openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { findImageRefs, findImageSource, renderMarkdown } from "./render";
 import { planImages, rewriteImageLinks } from "./export";
 import { fillCached, renderDiagrams } from "./diagrams";
+import { setupViewer, viewableAt } from "./viewer";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
 import { loadSession, saveSession } from "./session";
@@ -176,6 +177,7 @@ function render(): Promise<void> {
     ? renderMarkdown(text)
     : `<div class="empty-state"><p>Markdown ファイルをドロップするか、<kbd>Ctrl</kbd>+<kbd>O</kbd> で開いてください。</p></div>`;
   rewriteImages(tpl.content);
+  addCopyButtons(tpl.content);
   renderAnnotations(tpl.content, resolveImageSrc);
   fillCached(tpl.content, dark);
   const scroll = previewPane.scrollTop;
@@ -209,6 +211,22 @@ function rewriteImages(root: ParentNode) {
     if (!src || hasScheme(src) || src.startsWith("//")) continue;
     const url = resolveImageSrc(src);
     if (url) img.src = url;
+  }
+}
+
+/** コードブロックの右上にコピーボタンを付ける。pre はスクロールするので、包んだ外側に置く */
+function addCopyButtons(root: ParentNode) {
+  for (const pre of root.querySelectorAll("pre:not(.diagram-src)")) {
+    if (!pre.querySelector("code")) continue;
+    const wrap = document.createElement("div");
+    wrap.className = "code-wrap";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "code-copy";
+    btn.title = "コードをコピー";
+    btn.textContent = "コピー";
+    pre.replaceWith(wrap);
+    wrap.append(pre, btn);
   }
 }
 
@@ -374,7 +392,8 @@ const focusedTarget = (): ZoomTarget =>
 window.addEventListener(
   "wheel",
   (e) => {
-    if (!e.ctrlKey) return;
+    // 拡大ビューアを開いている間は、ビューアの中だけを拡大縮小する
+    if (!e.ctrlKey || viewer.isOpen()) return;
     e.preventDefault();
     const target: ZoomTarget = $("editor-pane").contains(e.target as Node) ? "editor" : "preview";
     changeZoom(target, e.deltaY < 0 ? 0.1 : -0.1);
@@ -913,14 +932,33 @@ const annotator = setupAnnotator({
 /** 「図」: カーソルが画像の行にあれば注釈エディタ、それ以外は図のビルダー */
 const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
 
-// プレビューの画像を右クリック →「注釈を編集」
+// プレビューの図や画像をクリック、または右クリック →「拡大して見る」で拡大ビューアを開く
+const viewer = setupViewer();
+function openViewer(el: HTMLElement | SVGSVGElement) {
+  if (!viewer.open(el)) void message("画像を読み込めていないため、拡大して見られません。", { title: "拡大ビューア", kind: "warning" });
+}
+preview.addEventListener("click", (e) => {
+  // リンクの付いた画像・図の中のリンクは、リンクを優先する
+  if ((e.target as Element).closest("a")) return;
+  // 文字を選ぶドラッグが図の上で終わったときは開かない
+  if (!window.getSelection()?.isCollapsed) return;
+  const el = viewableAt(e.target);
+  if (!el) return;
+  openViewer(el);
+});
+
+// プレビューの図や画像を右クリック →「拡大して見る」「注釈を編集」（注釈は画像だけ）
 const previewMenu = $("preview-menu");
+const annotateItem = previewMenu.querySelector<HTMLButtonElement>('[data-action="annotate"]')!;
+let menuTarget: HTMLElement | SVGSVGElement | null = null;
 let menuImage: number | null = null;
 preview.addEventListener("contextmenu", (e) => {
-  const img = (e.target as Element).closest<HTMLImageElement>("img[data-img-n]");
-  if (!img) return;
+  menuTarget = viewableAt(e.target);
+  if (!menuTarget) return;
   e.preventDefault();
-  menuImage = Number(img.dataset.imgN);
+  const img = (e.target as Element).closest<HTMLImageElement>("img[data-img-n]");
+  menuImage = img ? Number(img.dataset.imgN) : null;
+  annotateItem.hidden = menuImage === null;
   previewMenu.hidden = false;
   const r = previewMenu.getBoundingClientRect();
   previewMenu.style.left = `${Math.min(e.clientX, window.innerWidth - r.width - 4)}px`;
@@ -928,14 +966,18 @@ preview.addEventListener("contextmenu", (e) => {
 });
 const closePreviewMenu = () => {
   previewMenu.hidden = true;
+  menuTarget = null;
   menuImage = null;
 };
 window.addEventListener("pointerdown", (e) => !previewMenu.contains(e.target as Node) && closePreviewMenu(), true);
 window.addEventListener("blur", closePreviewMenu);
-previewMenu.addEventListener("click", async () => {
+previewMenu.addEventListener("click", async (e) => {
+  const action = (e.target as Element).closest<HTMLElement>("[data-action]")?.dataset.action;
+  const target = menuTarget;
   const n = menuImage;
   closePreviewMenu();
-  if (n === null) return;
+  if (action === "view" && target) return openViewer(target);
+  if (action !== "annotate" || n === null) return;
   // ソースのその画像にカーソルを移してから開く（エディタ側の位置で書き換えるため）
   const pos = findImageSource(editor.getText(), n);
   if (!pos) return void message("この画像の場所を MD の中で見つけられませんでした。", { title: "画像の注釈", kind: "warning" });
@@ -1312,6 +1354,24 @@ $("pdf-close").addEventListener("click", () => closePdfPreview());
 
 // ---------- リンク ----------
 
+// コードブロックのコピーボタン
+preview.addEventListener("click", async (e) => {
+  const btn = (e.target as Element).closest<HTMLButtonElement>(".code-copy");
+  const code = btn?.parentElement?.querySelector("pre code");
+  if (!btn || !code) return;
+  try {
+    await navigator.clipboard.writeText(code.textContent ?? "");
+    btn.textContent = "コピーしました";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "コピー";
+      btn.classList.remove("copied");
+    }, 1500);
+  } catch (err) {
+    await showError(err);
+  }
+});
+
 preview.addEventListener("click", async (e) => {
   const a = (e.target as Element).closest("a");
   if (!a) return;
@@ -1334,10 +1394,10 @@ preview.addEventListener("click", async (e) => {
 });
 
 // ---------- ダイアログ表示中のメニュー ----------
-// 設定・PDF・パスで開く・図のビルダー・画像の注釈を開いている間は、メニューバーを丸ごと灰色にする
+// 設定・PDF・パスで開く・図のビルダー・画像の注釈・拡大ビューアを開いている間は、メニューバーを丸ごと灰色にする
 
 const isModal = () =>
-  !settingsOverlay.hidden || !pdfOverlay.hidden || !openPathOverlay.hidden || annotator.isOpen() || builder.isOpen();
+  !settingsOverlay.hidden || !pdfOverlay.hidden || !openPathOverlay.hidden || annotator.isOpen() || builder.isOpen() || viewer.isOpen();
 new MutationObserver(() => menuBar.setModal(isModal())).observe(document.body, {
   subtree: true,
   attributes: true,
@@ -1356,6 +1416,10 @@ window.addEventListener(
       e.stopPropagation();
       fn();
     };
+    // 拡大ビューアを開いている間は、ビューアの操作だけを受け付ける（下の文書を変えないため）
+    if (viewer.isOpen()) {
+      return run(() => viewer.handleKey(e));
+    }
     // 図のビルダーを開いている間は、入力欄にキーを渡す（Esc で閉じるだけ）
     if (annotator.isOpen()) {
       if (e.key === "Escape") run(() => annotator.close());
