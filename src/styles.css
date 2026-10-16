@@ -335,6 +335,20 @@ button:hover { background: var(--btn-hover); }
 .files-twisty { flex: none; width: 12px; color: var(--muted); text-align: center; }
 .files-icon { flex: none; font-size: 12px; }
 .files-name { overflow: hidden; text-overflow: ellipsis; }
+/* 新しいフォルダの名前の入力欄（ツリーの中に出す） */
+.files-draft input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  padding: 1px 4px;
+  outline: none;
+  user-select: text;
+}
+.files-draft-error { padding: 2px 8px 4px; color: var(--error); font-size: 12px; white-space: normal; overflow-wrap: anywhere; }
 .files-status { flex: 1; min-height: 0; overflow: auto; padding: 12px; color: var(--muted); }
 .files-status[hidden] { display: none; }
 .files-status p { margin: 0 0 8px; overflow-wrap: anywhere; }

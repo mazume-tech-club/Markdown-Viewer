@@ -85,6 +85,11 @@ export function setupFilePanel(opts: FilePanelOptions) {
   /** 作業フォルダを読めなかった（削除・移動・ドライブ切断） */
   let missing = false;
   let menuTarget: Entry | null = null;
+  /** 名前を入力中の新しいフォルダ（作成先と、作れなかった理由） */
+  let draft: { parent: string; error: string } | null = null;
+  /** 入力欄。描画し直しても入力中の文字とフォーカスを保つため、同じ要素を使い回す */
+  let draftInput: HTMLInputElement | null = null;
+  let creating = false;
   /** 最近使ったフォルダ（新しい順。今の作業フォルダも含めて記録する） */
   let recent = loadRecent();
 
@@ -163,41 +168,72 @@ export function setupFilePanel(opts: FilePanelOptions) {
       return;
     }
     const rows = visibleRows();
-    if (!rows.length) {
+    if (!rows.length && !draft) {
       status.hidden = false;
       const p = document.createElement("p");
       p.textContent = "Markdown ファイルがありません。";
       status.append(p);
     }
-    tree.replaceChildren(
-      ...rows.map(({ entry, depth }) => {
-        const el = document.createElement("div");
-        el.className = "files-row";
-        el.setAttribute("role", "treeitem");
-        el.setAttribute("aria-level", String(depth + 1));
-        el.dataset.path = entry.path;
-        el.title = entry.path;
-        el.style.paddingLeft = `${8 + depth * 14}px`;
-        const open = entry.dir && expanded.has(keyOf(entry.path));
-        if (entry.dir) el.setAttribute("aria-expanded", String(open));
-        if (cursor && keyOf(cursor) === keyOf(entry.path)) el.classList.add("cursor");
-        if (!entry.dir && activeFile && keyOf(activeFile) === keyOf(entry.path)) {
-          el.classList.add("active");
-          el.setAttribute("aria-selected", "true");
-        }
-        const twisty = document.createElement("span");
-        twisty.className = "files-twisty";
-        twisty.textContent = entry.dir ? (open ? "▾" : "▸") : "";
-        const icon = document.createElement("span");
-        icon.className = "files-icon";
-        icon.textContent = entry.dir ? "📁" : "📄";
-        const name = document.createElement("span");
-        name.className = "files-name";
-        name.textContent = entry.name;
-        el.append(twisty, icon, name);
-        return el;
-      }),
-    );
+    const typing = !!draftInput && document.activeElement === draftInput;
+    const els = rows.map(({ entry, depth }) => {
+      const el = document.createElement("div");
+      el.className = "files-row";
+      el.setAttribute("role", "treeitem");
+      el.setAttribute("aria-level", String(depth + 1));
+      el.dataset.path = entry.path;
+      el.title = entry.path;
+      el.style.paddingLeft = `${8 + depth * 14}px`;
+      const open = entry.dir && expanded.has(keyOf(entry.path));
+      if (entry.dir) el.setAttribute("aria-expanded", String(open));
+      if (cursor && keyOf(cursor) === keyOf(entry.path)) el.classList.add("cursor");
+      if (!entry.dir && activeFile && keyOf(activeFile) === keyOf(entry.path)) {
+        el.classList.add("active");
+        el.setAttribute("aria-selected", "true");
+      }
+      const twisty = document.createElement("span");
+      twisty.className = "files-twisty";
+      twisty.textContent = entry.dir ? (open ? "▾" : "▸") : "";
+      const icon = document.createElement("span");
+      icon.className = "files-icon";
+      icon.textContent = entry.dir ? "📁" : "📄";
+      const name = document.createElement("span");
+      name.className = "files-name";
+      name.textContent = entry.name;
+      el.append(twisty, icon, name);
+      return el;
+    });
+    if (draft) {
+      // 作成先の中身の一番上に出す（作成先は開いてある）
+      const at = keyOf(draft.parent) === keyOf(root) ? -1 : rows.findIndex((r) => keyOf(r.entry.path) === keyOf(draft!.parent));
+      els.splice(at + 1, 0, draftRow(at < 0 ? 0 : rows[at].depth + 1));
+    }
+    tree.replaceChildren(...els);
+    if (typing) draftInput?.focus();
+  }
+
+  function draftRow(depth: number) {
+    const wrap = document.createElement("div");
+    wrap.className = "files-draft";
+    const row = document.createElement("div");
+    row.className = "files-row";
+    row.style.paddingLeft = `${8 + depth * 14}px`;
+    const twisty = document.createElement("span");
+    twisty.className = "files-twisty";
+    const icon = document.createElement("span");
+    icon.className = "files-icon";
+    icon.textContent = "📁";
+    draftInput ??= newDraftInput();
+    draftInput.setAttribute("aria-invalid", String(!!draft?.error));
+    row.append(twisty, icon, draftInput);
+    wrap.append(row);
+    if (draft?.error) {
+      const err = document.createElement("div");
+      err.className = "files-draft-error";
+      err.style.paddingLeft = `${8 + depth * 14 + 16}px`;
+      err.textContent = draft.error;
+      wrap.append(err);
+    }
+    return wrap;
   }
 
   function button(label: string, onClick: () => unknown) {
@@ -221,6 +257,8 @@ export function setupFilePanel(opts: FilePanelOptions) {
     children.clear();
     expanded.clear();
     cursor = null;
+    draft = null;
+    draftInput = null;
   }
 
   async function setRoot(dir: string) {
@@ -288,6 +326,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
     localStorage.setItem(OPEN_KEY, "0");
     opts.onOpenChange?.(false);
     closeMenu();
+    cancelDraft();
     void stopWatch();
     if (hadFocus) opts.onClose();
   }
@@ -357,17 +396,29 @@ export function setupFilePanel(opts: FilePanelOptions) {
     if (entry && !entry.dir) void opts.openPinned(entry.path);
   });
 
-  // 右クリックメニュー（パスをコピー・エクスプローラーで表示）
+  // 右クリックメニュー（新しいフォルダ・パスをコピー・エクスプローラーで表示）。空白部分では作業フォルダが対象
   tree.addEventListener("contextmenu", (e) => {
-    const entry = entryOf(e.target);
+    // 入力欄の中は、ブラウザの編集メニュー（貼り付けなど）に任せる
+    if (draftInput?.contains(e.target as Node)) return;
     e.preventDefault();
-    if (!entry) return;
-    cursor = entry.path;
-    render();
-    showMenu(entry, e);
+    const entry = entryOf(e.target);
+    if (entry) {
+      cursor = entry.path;
+      render();
+      showMenu(entry, e, true);
+    } else if (root && !missing && !(e.target as Element).closest(".files-draft")) {
+      showMenu({ name: basename(root), path: root, dir: true }, e, true);
+    }
   });
-  function showMenu(entry: Entry, e: MouseEvent) {
+  // 作業フォルダが空のときはツリーに高さがないので、「Markdown ファイルがありません」の欄でも出す
+  status.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    if (root && !missing) showMenu({ name: basename(root), path: root, dir: true }, e, true);
+  });
+  function showMenu(entry: Entry, e: MouseEvent, canCreate: boolean) {
     menuTarget = entry;
+    menu.querySelector<HTMLElement>("[data-action=new-folder]")!.hidden = !canCreate;
+    menu.querySelector<HTMLElement>(".menu-sep")!.hidden = !canCreate;
     menu.hidden = false;
     const { innerWidth, innerHeight } = window;
     const r = menu.getBoundingClientRect();
@@ -383,11 +434,94 @@ export function setupFilePanel(opts: FilePanelOptions) {
     const target = menuTarget;
     closeMenu();
     if (!target) return;
-    if (action === "copy") await navigator.clipboard.writeText(target.path).catch(() => undefined);
+    if (action === "new-folder") await startDraft(target.dir ? target.path : dirname(target.path));
+    else if (action === "copy") await navigator.clipboard.writeText(target.path).catch(() => undefined);
     else if (action === "reveal") await revealItemInDir(target.path).catch(() => undefined);
   });
-  window.addEventListener("pointerdown", (e) => !menu.contains(e.target as Node) && closeMenu(), true);
+  window.addEventListener(
+    "pointerdown",
+    (e) => {
+      if (!menu.contains(e.target as Node)) closeMenu();
+      // 入力欄の外をクリックしたら、新しいフォルダは作らずに閉じる
+      if (draft && !(e.target as Element).closest?.(".files-draft")) cancelDraft();
+    },
+    true,
+  );
   window.addEventListener("blur", closeMenu);
+
+  // ---- 新しいフォルダ ----
+
+  function newDraftInput() {
+    const input = document.createElement("input");
+    input.type = "text";
+    input.spellcheck = false;
+    input.setAttribute("aria-label", "新しいフォルダの名前");
+    input.addEventListener("keydown", (e) => {
+      // ツリーの矢印キー操作に渡さない
+      e.stopPropagation();
+      if (e.key === "Enter" && !e.isComposing) {
+        e.preventDefault();
+        void submitDraft();
+      } else if (e.key === "Escape" && !e.isComposing) {
+        e.preventDefault();
+        cancelDraft();
+        tree.focus();
+      }
+    });
+    // Tab などでほかの場所へフォーカスが移ったら閉じる（描画し直しで外れたときは relatedTarget が無い）
+    input.addEventListener("focusout", (e) => {
+      const to = e.relatedTarget as Element | null;
+      if (to && !to.closest(".files-draft") && !creating) cancelDraft();
+    });
+    return input;
+  }
+
+  /** parent の中身の一番上に名前の入力欄を出す */
+  async function startDraft(parent: string) {
+    if (!root) return;
+    if (keyOf(parent) !== keyOf(root)) {
+      expanded.add(keyOf(parent));
+      if (!children.has(keyOf(parent))) await load(parent);
+    }
+    draft = { parent, error: "" };
+    draftInput = newDraftInput();
+    render();
+    draftInput.focus();
+    draftInput.scrollIntoView({ block: "nearest" });
+  }
+
+  function cancelDraft() {
+    if (!draft) return;
+    draft = null;
+    draftInput = null;
+    render();
+  }
+
+  /** 作れたら新しいフォルダを選ぶ。作れなければ入力欄を残して理由を出す */
+  async function submitDraft() {
+    if (!draft || !draftInput || creating) return;
+    const { parent } = draft;
+    const name = draftInput.value;
+    if (!name.trim()) return cancelDraft();
+    creating = true;
+    try {
+      const path = await invoke<string>("create_folder", { parent, name });
+      draft = null;
+      draftInput = null;
+      await load(parent);
+      cursor = path;
+      render();
+      tree.focus();
+      scrollToCursor();
+    } catch (err) {
+      if (!draft) return;
+      draft.error = String(err);
+      render();
+      draftInput?.focus();
+    } finally {
+      creating = false;
+    }
+  }
 
   // ---- キーボード ----
 
@@ -532,7 +666,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
   recentList.addEventListener("contextmenu", (e) => {
     e.preventDefault();
     const path = recentOf(e.target);
-    if (path) showMenu({ name: basename(path), path, dir: true }, e);
+    if (path) showMenu({ name: basename(path), path, dir: true }, e, false);
   });
 
   // ---- ボタン・外部の変化 ----

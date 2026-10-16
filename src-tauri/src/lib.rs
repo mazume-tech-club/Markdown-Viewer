@@ -82,6 +82,46 @@ fn list_dir(path: String) -> Result<Vec<DirEntry>, String> {
     Ok(entries)
 }
 
+/// 新しいフォルダの名前として使えるか。使えなければ理由を返す
+fn check_folder_name(name: &str) -> Result<(), String> {
+    const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+    if name.trim().is_empty() {
+        return Err("名前を入力してください。".into());
+    }
+    if name.chars().any(|c| r#"\/:*?"<>|"#.contains(c) || c.is_control()) {
+        return Err(r#"次の文字は使えません: \ / : * ? " < > |"#.into());
+    }
+    if name.ends_with('.') || name.ends_with(' ') {
+        return Err("名前の最後にドット（.）や空白は使えません。".into());
+    }
+    // CON・COM1 などは拡張子を付けても使えない
+    let stem = name.split('.').next().unwrap_or(name).trim_end().to_ascii_uppercase();
+    let numbered = |p: &str| {
+        stem.strip_prefix(p)
+            .is_some_and(|n| n.len() == 1 && matches!(n.as_bytes()[0], b'1'..=b'9'))
+    };
+    if RESERVED.contains(&stem.as_str()) || numbered("COM") || numbered("LPT") {
+        return Err(format!("「{name}」は Windows で予約されている名前なので使えません。"));
+    }
+    // 作ってもファイルパネルに出ないので、作れなかったように見えてしまう
+    if is_hidden_dir(name) {
+        return Err("「.」で始まる名前と node_modules は、ファイルパネルに表示されないので使えません。".into());
+    }
+    Ok(())
+}
+
+/// フォルダを作り、そのパスを返す（ファイルパネルの「新しいフォルダ」）
+#[tauri::command]
+fn create_folder(parent: String, name: String) -> Result<String, String> {
+    check_folder_name(&name)?;
+    let path = Path::new(&parent).join(&name);
+    if path.exists() {
+        return Err(format!("「{name}」は既にあります。"));
+    }
+    std::fs::create_dir(&path).map_err(|e| format!("フォルダを作れませんでした: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 fn is_dir(path: String) -> bool {
     Path::new(&path).is_dir()
@@ -684,6 +724,7 @@ pub fn run() {
             watch_file,
             unwatch_file,
             list_dir,
+            create_folder,
             is_dir,
             path_exists,
             watch_folder,
@@ -832,6 +873,29 @@ mod tests {
             .collect();
         std::fs::remove_dir_all(&dir).unwrap();
         assert_eq!(names, ["A-dir", "b-dir", "a.MD", "B.txt", "z.md"]);
+    }
+
+    #[test]
+    fn check_folder_name_rejects_unusable_names() {
+        for ok in ["docs", "設計 メモ", "v1.2", "CONSOLE", "COM10", "a.b"] {
+            assert!(check_folder_name(ok).is_ok(), "{ok}");
+        }
+        for ng in ["", "  ", r"a\b", "a/b", "a:b", "a?", "a.", "a ", "con", "Nul.txt", "COM1", "lpt9", ".git", "node_modules"] {
+            assert!(check_folder_name(ng).is_err(), "{ng}");
+        }
+    }
+
+    #[test]
+    fn create_folder_makes_dir_and_rejects_existing() {
+        let dir = std::env::temp_dir().join(format!("mp-create-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let parent = dir.to_string_lossy().into_owned();
+        let made = create_folder(parent.clone(), "新しい".into()).unwrap();
+        assert!(Path::new(&made).is_dir());
+        assert!(create_folder(parent.clone(), "新しい".into()).is_err());
+        assert!(create_folder(parent, "a/b".into()).is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
