@@ -1,0 +1,130 @@
+/* ---------- 文書スタイル「設計メモ」 ----------
+   プレビューと PDF の文書の装いを変える（:root の data-doc-style="memo" のときだけ効く）。
+   github-markdown-css の変数を上書きし、足りない所だけ規則を足す。
+   テーマの CSS は後から <style> で足すので、:root[...] を付けて強くしておく。
+   書体の BIZ UDPゴシックは Windows 10 以降に入っているので同梱しない */
+:root[data-doc-style="memo"] {
+  --memo-bg: #f4f6f7;
+  --memo-surface: #ffffff;
+  --memo-fg: #1c2328;
+  --memo-muted: #5d6974;
+  --memo-line: #c3cbd2;
+  --memo-accent: #0a6c78;
+  --memo-accent-soft: #dceff1;
+  --memo-font: "BIZ UDPGothic", "Yu Gothic UI", "Meiryo", sans-serif;
+  --memo-mono: "Cascadia Code", Consolas, "BIZ UDGothic", monospace;
+  --judge-good: #0a6c78;
+  --judge-mid: #8a6d00;
+  --judge-bad: #a8402c;
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root[data-doc-style="memo"] {
+    --memo-bg: #11161a;
+    --memo-surface: #182026;
+    --memo-fg: #e2e8ec;
+    --memo-muted: #93a1ac;
+    --memo-line: #36434d;
+    --memo-accent: #52c2cd;
+    --memo-accent-soft: #163a40;
+    --judge-good: #52c2cd;
+    --judge-mid: #d6b44a;
+    --judge-bad: #e8846f;
+  }
+}
+/* PDF は白い紙に刷る */
+@media print {
+  :root[data-doc-style="memo"] { --memo-bg: #ffffff; }
+}
+
+:root[data-doc-style="memo"] #preview-pane { background: var(--memo-bg); }
+:root[data-doc-style="memo"] .markdown-body {
+  --bgColor-default: var(--memo-bg);
+  --bgColor-muted: var(--memo-surface);
+  --fgColor-default: var(--memo-fg);
+  --fgColor-muted: var(--memo-muted);
+  --fgColor-accent: var(--memo-accent);
+  --borderColor-default: var(--memo-line);
+  --borderColor-muted: var(--memo-line);
+  /* 印刷用の github-markdown-light.css は変数を使わず色を直接書くので、地と文字の色も直接上書きする */
+  background: var(--memo-bg);
+  color: var(--memo-fg);
+  max-width: 1060px;
+  font-family: var(--memo-font);
+  font-size: 15px;
+  line-height: 1.7;
+}
+:root[data-doc-style="memo"] .markdown-body h1,
+:root[data-doc-style="memo"] .markdown-body h2,
+:root[data-doc-style="memo"] .markdown-body h3,
+:root[data-doc-style="memo"] .markdown-body h4 {
+  font-weight: 700;
+  line-height: 1.4;
+  text-wrap: balance;
+}
+:root[data-doc-style="memo"] .markdown-body h1 { font-size: 26px; border-bottom: none; padding-bottom: 0; }
+:root[data-doc-style="memo"] .markdown-body h2 {
+  font-size: 19px;
+  margin-top: 40px;
+  padding-bottom: 6px;
+  border-bottom: 2px solid var(--memo-accent);
+}
+:root[data-doc-style="memo"] .markdown-body h3 {
+  font-size: 16px;
+  padding-left: 10px;
+  border-left: 4px solid var(--memo-accent);
+}
+:root[data-doc-style="memo"] .markdown-body p,
+:root[data-doc-style="memo"] .markdown-body ul,
+:root[data-doc-style="memo"] .markdown-body ol { max-width: 72ch; }
+:root[data-doc-style="memo"] .markdown-body a { color: var(--memo-accent); }
+
+/* 番号付きリストの番号を等幅・アクセント色にする */
+:root[data-doc-style="memo"] .markdown-body ol > li::marker {
+  font-family: var(--memo-mono);
+  font-weight: 600;
+  color: var(--memo-accent);
+}
+
+/* インラインコードは淡いアクセント色の地に */
+:root[data-doc-style="memo"] .markdown-body code:not(pre code) {
+  font-family: var(--memo-mono);
+  font-size: 0.88em;
+  background: var(--memo-accent-soft);
+  border-radius: 3px;
+}
+:root[data-doc-style="memo"] .markdown-body pre {
+  background: var(--memo-surface);
+  border: 1px solid var(--memo-line);
+  border-radius: 4px;
+}
+:root[data-doc-style="memo"] .markdown-body pre code { font-family: var(--memo-mono); }
+
+/* 表は白い面に細い罫線、見出し行は地の色 */
+:root[data-doc-style="memo"] .markdown-body table { font-size: 14px; background: var(--memo-surface); }
+:root[data-doc-style="memo"] .markdown-body table th,
+:root[data-doc-style="memo"] .markdown-body table td {
+  border: 1px solid var(--memo-line);
+  padding: 8px 12px;
+  vertical-align: top;
+}
+/* 見出し行は左寄せ（表で寄せを指定したときは style 属性が勝つ） */
+:root[data-doc-style="memo"] .markdown-body table th { background: var(--memo-bg); font-weight: 700; text-align: left; }
+:root[data-doc-style="memo"] .markdown-body table tr { background: var(--memo-surface); border-top: none; }
+:root[data-doc-style="memo"] .markdown-body table tr:nth-child(2n) { background: var(--memo-surface); }
+
+:root[data-doc-style="memo"] .markdown-body blockquote {
+  color: var(--memo-muted);
+  border-left: 4px solid var(--memo-accent);
+  background: var(--memo-accent-soft);
+  padding: 8px 14px;
+  border-radius: 0 4px 4px 0;
+}
+:root[data-doc-style="memo"] .markdown-body hr { background: var(--memo-line); height: 1px; }
+
+/* 図と画像は白い面に載せる */
+:root[data-doc-style="memo"] .markdown-body .diagram.done {
+  background: var(--memo-surface);
+  border: 1px solid var(--memo-line);
+  border-radius: 6px;
+  padding: 16px;
+}
