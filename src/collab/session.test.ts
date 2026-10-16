@@ -113,6 +113,8 @@ class FakeConn implements Transport {
         return {};
       case "send":
         if (this.state !== "joined") throw { code: "not-in-session", message: "not ready" };
+        // 中継サーバーのフレームは 1 MB まで（暗号化の分を差し引いても収まるかを見る）
+        if (fromBase64(String(msg.data)).byteLength > 1024 * 1024 - 64) throw { code: "too-large", message: "frame too large" };
         this.sends++;
         if (this.sendDelay) await new Promise((r) => setTimeout(r, this.sendDelay));
         this.relay.forward(this, Number(msg.to), String(msg.data));
@@ -285,5 +287,60 @@ describe("base64", () => {
   it("大きなデータも元に戻る", () => {
     const bytes = new Uint8Array(200_000).map((_, i) => i % 256);
     expect(fromBase64(toBase64(bytes))).toEqual(bytes);
+  });
+});
+
+describe("画像の受け渡し", () => {
+  /** 中身が分かるように、位置ごとに値を変えたバイト列 */
+  const bytesOf = (n: number) => Uint8Array.from({ length: n }, (_, i) => (i * 7) % 251);
+
+  it("参加者が貼った 1 MB を超える画像が、分けて送られてホストにそろって届く", async () => {
+    const { host, guest } = await setup();
+    const got: { path: string; size: number; same: boolean }[] = [];
+    const img = bytesOf(2.5 * 1024 * 1024);
+    host["handlers"].image = (r) => got.push({ path: r.path, size: r.bytes.byteLength, same: r.bytes.every((b, i) => b === img[i]) });
+    const warnings: string[] = [];
+    guest["handlers"].warning = (m) => warnings.push(m);
+    guest.shareImage({ path: "議事録.assets/image-1-p2.png", bytes: img });
+    await until(() => got.length === 1, "画像が届く");
+    expect(got[0]).toEqual({ path: "議事録.assets/image-1-p2.png", size: img.byteLength, same: true });
+    expect(host.images.get("議事録.assets/image-1-p2.png")?.bytes.byteLength).toBe(img.byteLength);
+    expect(warnings).toEqual([]);
+  });
+
+  it("注釈の焼き込み画像は、MD に書いたリンクも一緒に届く", async () => {
+    const { host, guest } = await setup();
+    const got: (string | undefined)[] = [];
+    guest["handlers"].image = (r) => got.push(r.link);
+    host.shareImage({ path: "議事録.assets/a.annotated.png", bytes: bytesOf(10), link: "./議事録.assets/a.annotated.png" });
+    await until(() => got.length === 1, "画像が届く");
+    expect(got).toEqual(["./議事録.assets/a.annotated.png"]);
+  });
+
+  it("あとから入った参加者にも、それまでに貼られた画像が届く", async () => {
+    const { relay, host, guest } = await setup();
+    guest.shareImage({ path: "議事録.assets/b.png", bytes: bytesOf(100) });
+    await until(() => host.images.has("議事録.assets/b.png"), "ホストに届く");
+    host.shareImage({ path: "議事録.assets/c.png", bytes: bytesOf(200) });
+    const requests: number[] = [];
+    host["handlers"].joinRequest = (r) => requests.push(r.peer);
+    const paths: string[] = [];
+    const third = await CollabSession.join(relay.connect(), { name: "鈴木", invite: host.invite }, {
+      image: (r) => paths.push(r.path),
+    });
+    await until(() => requests.length === 1);
+    await host.approve(requests[0]);
+    await until(() => paths.length === 2, "3 人目に画像が届く");
+    expect(paths.sort()).toEqual(["議事録.assets/b.png", "議事録.assets/c.png"]);
+    expect(third.images.get("議事録.assets/c.png")?.bytes.byteLength).toBe(200);
+  });
+
+  it("10 MB を超える画像は、送らずに例外になる", async () => {
+    const { host, guest } = await setup();
+    const sends = (guest["transport"] as FakeConn).sends;
+    expect(() => guest.shareImage({ path: "議事録.assets/big.png", bytes: new Uint8Array(10 * 1024 * 1024 + 1) })).toThrow(/大きすぎ/);
+    expect(guest.images.size).toBe(0);
+    expect((guest["transport"] as FakeConn).sends).toBe(sends);
+    expect(host.images.size).toBe(0);
   });
 });

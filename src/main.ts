@@ -42,7 +42,7 @@ import { isOptionEnabled, OPTION_FEATURES, setOptionEnabled, type OptionId } fro
 import { markJudgeCells } from "./judge";
 import { applyPdfLayout, loadPdfLayout, PDF_SCALES, savePdfLayout } from "./pdflayout";
 import { getTermPosition, setupTerminal } from "./terminal";
-import { CollabSession, type SessionHandlers } from "./collab/session";
+import { CollabSession, MAX_IMAGE, type SessionHandlers } from "./collab/session";
 import { collabExtension } from "./collab/editor";
 import { applyText } from "./collab/text";
 import { isCollabError, tauriTransport } from "./collab/transport";
@@ -179,6 +179,21 @@ const tabs: Tab[] = [];
 /** 表示中のタブ（起動直後に必ず 1 つ作る） */
 let active: Tab;
 
+/**
+ * 保存待ちの画像に足す。共同編集中のタブなら、ほかの人にも送る（share = false は受け取った画像）。
+ * 10 MB を超えて共有できないときは例外を投げる
+ */
+function addPendingImage(tab: Tab, rel: string, bytes: Uint8Array, link?: string, share = true) {
+  const s = tab.collab && tab.collab.status !== "closed" ? tab.collab : undefined;
+  if (share && s && bytes.byteLength > MAX_IMAGE) throw new Error("画像が大きすぎて共有できません（1 枚 10 MB まで）");
+  const old = tab.pendingImages.get(rel);
+  if (old) URL.revokeObjectURL(old.url);
+  const ext = rel.split(".").pop()?.toLowerCase() ?? "";
+  const type = Object.keys(IMAGE_EXT).find((m) => IMAGE_EXT[m] === ext) ?? "image/png";
+  tab.pendingImages.set(rel, { bytes, url: URL.createObjectURL(new Blob([bytes as BlobPart], { type })), link });
+  if (share && s) s.shareImage(link ? { path: rel, bytes, link } : { path: rel, bytes });
+}
+
 function clearPendingImages(tab: Tab) {
   for (const p of tab.pendingImages.values()) URL.revokeObjectURL(p.url);
   tab.pendingImages.clear();
@@ -208,7 +223,7 @@ function render(): Promise<void> {
   const tpl = document.createElement("template");
   tpl.innerHTML = text.trim()
     ? renderMarkdown(text)
-    : `<div class="empty-state"><p>Markdown ファイルをドロップするか、<kbd>Ctrl</kbd>+<kbd>O</kbd> で開いてください。</p></div>`;
+    : `<div class="empty-state"><p>Markdown ファイルをドロップするか、<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> でパスを入力して開いてください。</p></div>`;
   rewriteImages(tpl.content);
   addCopyButtons(tpl.content);
   if (isOptionEnabled("judgeColors")) markJudgeCells(tpl.content);
@@ -283,20 +298,24 @@ const IMAGE_EXT: Record<string, string> = {
 
 /** 貼り付けた画像を保存待ちに登録し、挿入する Markdown を返す */
 async function onPasteImage(file: File): Promise<string | null> {
-  // 段階 1 では画像を共有しない。参加者が貼っても、ホストのファイルの隣には置けないので受け付けない
-  if (active.collab?.role === "guest") {
-    await message("共同編集の参加者は、まだ画像を貼り付けられません。", { title: "Markdown Preview", kind: "info" });
-    return null;
-  }
-  const pendingImages = active.pendingImages;
+  const tab = active;
+  const pendingImages = tab.pendingImages;
+  // 参加者は、ホストのファイルの隣（ホストのファイル名.assets）に置く。ほかの人と名前がぶつからないよう接続 ID を付ける
+  const guest = tab.collab?.role === "guest" ? tab.collab : undefined;
   const ext = IMAGE_EXT[file.type] ?? "png";
   const d = new Date();
   const p2 = (n: number) => String(n).padStart(2, "0");
   const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
-  const dir = assetDirOf(active.path);
-  let rel = `${dir}/image-${stamp}.${ext}`;
-  for (let i = 2; pendingImages.has(rel); i++) rel = `${dir}/image-${stamp}-${i}.${ext}`;
-  pendingImages.set(rel, { bytes: new Uint8Array(await file.arrayBuffer()), url: URL.createObjectURL(file) });
+  const dir = guest ? assetDirOf(guest.file || null) : assetDirOf(tab.path);
+  const base = guest ? `image-${stamp}-p${guest.you}` : `image-${stamp}`;
+  let rel = `${dir}/${base}.${ext}`;
+  for (let i = 2; pendingImages.has(rel); i++) rel = `${dir}/${base}-${i}.${ext}`;
+  try {
+    addPendingImage(tab, rel, new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    await message(err instanceof Error ? err.message : String(err), { title: "Markdown Preview", kind: "warning" });
+    return null;
+  }
   return `![](${mdLink(rel)})`;
 }
 
@@ -960,7 +979,10 @@ async function saveCopy(tab: Tab): Promise<boolean> {
   });
   if (!picked) return false;
   try {
-    await invoke("write_file", { path: picked, content: textOf(tab) });
+    // 貼り付けた画像も、コピーの隣（ホストのファイル名.assets）に書き出す
+    const text = textOf(tab);
+    await writePendingImages(tab, picked, text);
+    await invoke("write_file", { path: picked, content: text });
     return true;
   } catch (err) {
     await showError(err);
@@ -1059,6 +1081,9 @@ function refreshCollabTab(tab: Tab) {
   renderTabs();
 }
 
+/** 共同編集で受け取る画像のパス（「〇〇.assets/名前.拡張子」。SVG は中にスクリプトを持てるので受け取らない） */
+const SHARED_IMAGE_PATH = /^[^\\/:]+\.assets\/[^\\/:]+\.(png|jpg|gif|webp|bmp)$/i;
+
 /** タブとセッションをつなぐ。裏にいる間に届いた編集でも、未保存の印と描画を更新する */
 function collabHandlers(getTab: () => Tab | undefined, extra: SessionHandlers = {}): SessionHandlers {
   return {
@@ -1070,6 +1095,14 @@ function collabHandlers(getTab: () => Tab | undefined, extra: SessionHandlers = 
     },
     info() {
       renderTabs();
+    },
+    image(img) {
+      const tab = getTab();
+      // ほかの人から届いたパスなので、「〇〇.assets」直下の画像だけを受け取る（保存時に md の外へ書かせないため）
+      if (!tab || !SHARED_IMAGE_PATH.test(img.path)) return console.warn("collab: 受け取らない画像", img.path);
+      const link = img.link && img.link.length <= 1000 && !/[\r\n]/.test(img.link) ? img.link : undefined;
+      addPendingImage(tab, img.path, img.bytes, link, false);
+      if (tab === active) scheduleRender();
     },
     closed(c) {
       const tab = getTab();
@@ -1134,6 +1167,10 @@ async function startCollab(name: string, handlers: SessionHandlers = {}): Promis
   tab.collab = s;
   watchCollabText(tab, s);
   refreshCollabTab(tab);
+  // 始める前に貼った（まだ保存していない）画像も、参加者に見えるようにする
+  for (const [rel, img] of tab.pendingImages) {
+    if (img.bytes.byteLength <= MAX_IMAGE) s.shareImage(img.link ? { path: rel, bytes: img.bytes, link: img.link } : { path: rel, bytes: img.bytes });
+  }
   return s.invite;
 }
 
@@ -1241,10 +1278,12 @@ const annotator = lazyTool(async () => (await import("./annotator/annotator")).s
   pendingBytes: (rel) => active.pendingImages.get(rel)?.bytes ?? null,
   // 焼き込み画像は貼り付け画像と同じく保存待ちにし、MD を保存したときに書き出す（保存前でも blob URL で表示できる）
   addPending: (rel, link, bytes) => {
-    const old = active.pendingImages.get(rel);
-    if (old) URL.revokeObjectURL(old.url);
-    const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "image/png" }));
-    active.pendingImages.set(rel, { bytes, url, link });
+    try {
+      addPendingImage(active, rel, bytes, link);
+    } catch (err) {
+      // 手元には置けているので、共有できなかったことだけを知らせる
+      void message(err instanceof Error ? err.message : String(err), { title: "Markdown Preview", kind: "warning" });
+    }
   },
   onApplied: () => state.mode === "preview" && setMode("split"),
 }));
@@ -1831,7 +1870,7 @@ preview.addEventListener("click", async (e) => {
 // 設定・PDF・パスで開く・図のビルダー・画像の注釈・拡大ビューアを開いている間は、メニューバーを丸ごと灰色にする
 
 const isModal = () =>
-  !settingsOverlay.hidden || !pdfOverlay.hidden || !openPathOverlay.hidden || annotator.isOpen() || builder.isOpen() || viewer.isOpen() || collabUi.isOpen();
+  !settingsOverlay.hidden || !pdfOverlay.hidden || !openPathOverlay.hidden || annotator.isOpen() || builder.isOpen() || viewer.isOpen() || collabUi.isOpen() || collabUi.isRequestOpen();
 new MutationObserver(() => menuBar.setModal(isModal())).observe(document.body, {
   subtree: true,
   attributes: true,
@@ -1854,6 +1893,8 @@ window.addEventListener(
     if (viewer.isOpen()) {
       return run(() => viewer.handleKey(e));
     }
+    // 参加の要求を出している間は、承認・断るのボタンにだけキーを渡す（Esc でも閉じない）
+    if (collabUi.isRequestOpen()) return;
     // 図のビルダーを開いている間は、入力欄にキーを渡す（Esc で閉じるだけ）
     if (annotator.isOpen()) {
       if (e.key === "Escape") run(() => annotator.close());

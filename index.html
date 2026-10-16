@@ -22,7 +22,6 @@
       <button id="banner-reload">再読み込み</button>
       <button id="banner-ignore">無視</button>
     </div>
-    <div id="collab-requests" class="collab-requests" hidden></div>
     <div id="update-banner" class="banner update" hidden>
       <span id="update-text"></span>
       <span id="update-progress" class="update-progress"></span>
@@ -159,6 +158,7 @@
             <h3>招待リンクで参加する</h3>
             <div class="settings-row">
               <input id="collab-invite-in" class="grow" type="text" spellcheck="false" autocomplete="off" placeholder="ホストから受け取った招待リンク（https://…/r/…#k=…）" />
+              <button id="collab-invite-clear" title="招待リンクを消す">クリア</button>
             </div>
             <div class="settings-row"><span class="grow"></span><button id="collab-join" class="primary">参加</button></div>
           </section>
@@ -175,6 +175,14 @@
           </section>
         </div>
         <p id="collab-error" class="collab-note collab-warn" hidden></p>
+      </div>
+    </div>
+    <div id="collab-requests" class="settings collab-requests" hidden>
+      <div class="settings-panel" role="alertdialog" aria-modal="true" aria-labelledby="collab-requests-title">
+        <div class="settings-head">
+          <strong id="collab-requests-title">参加の要求</strong>
+        </div>
+        <div id="collab-requests-list"></div>
       </div>
     </div>
     <div id="preview-menu" class="files-menu" role="menu" hidden>

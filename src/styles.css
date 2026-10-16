@@ -625,17 +625,16 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 #collab-error[hidden] { display: none; }
 .collab-peers { margin: 6px 0; padding-left: 20px; }
 .collab-peers li { margin: 2px 0; }
-.collab-requests[hidden] { display: none; }
+/* 参加の要求は共同編集の画面より手前に出す */
+.collab-requests { z-index: 31; }
 .collab-request {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 12px;
-  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
-  border-bottom: 1px solid var(--border);
+  padding: 12px 16px;
 }
-.collab-request span { flex: 1; }
-.collab-request button { border-color: var(--border); }
+.collab-request + .collab-request { border-top: 1px solid var(--border); }
+.collab-request span { flex: 1; overflow-wrap: anywhere; }
 .tab-collab { flex: none; color: var(--accent); }
 
 /* 印刷・PDF 出力: プレビューだけを白地で出す */

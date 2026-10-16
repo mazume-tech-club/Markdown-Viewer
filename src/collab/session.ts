@@ -13,6 +13,11 @@ import { isCollabError, type CollabEvent, type Peer, type Transport } from "./tr
 const MSG_SYNC = 0;
 const MSG_AWARENESS = 1;
 const MSG_INFO = 100;
+const MSG_IMAGE = 101;
+/** 画像は 1 枚 10 MB まで（docs/collaboration.md の「画像」） */
+export const MAX_IMAGE = 10 * 1024 * 1024;
+/** 中継サーバーのフレームは 1 MB までなので、画像は 512 KB ずつに分けて送る */
+const IMAGE_CHUNK = 512 * 1024;
 /** カーソルの送信は 100 ms に 1 回まで（中継サーバーの無料枠を使い切らないように） */
 const AWARENESS_INTERVAL = 100;
 /** 宛先 0 は「自分以外の全員」 */
@@ -34,8 +39,17 @@ export interface SessionHandlers {
   joinRequest?(req: { peer: number; name: string }): void;
   /** ホストのファイル名が分かった（参加者だけ） */
   info?(info: { file: string }): void;
+  /** ほかの人が貼った画像がそろった */
+  image?(img: SharedImage): void;
   closed?(c: { code: number; reason: string }): void;
   warning?(message: string): void;
+}
+
+/** 共有する画像。path は md からの相対パス、link は MD に書いたリンク（相対パスと違うときだけ。注釈の焼き込み画像） */
+export interface SharedImage {
+  path: string;
+  bytes: Uint8Array;
+  link?: string;
 }
 
 type Outgoing = { to: number; data: Uint8Array } | { to: number; update: Uint8Array };
@@ -56,6 +70,8 @@ export class CollabSession {
   /** 招待リンク（ホストだけ） */
   invite = "";
   closeInfo: { code: number; reason: string } | null = null;
+  /** 共同編集セッションの中で貼られた画像。キーは md からの相対パス。ホストは後から入った人にも送る */
+  readonly images = new Map<string, SharedImage>();
 
   private off: () => void;
   private outbox: Outgoing[] = [];
@@ -64,6 +80,8 @@ export class CollabSession {
   private changedClients = new Set<number>();
   /** 接続 ID ごとの awareness の clientID（抜けた人のカーソルを消すため） */
   private clientsOf = new Map<number, Set<number>>();
+  /** 受け取り途中の画像（キーは `送り手:パス`） */
+  private incoming = new Map<string, { size: number; link: string; parts: (Uint8Array | undefined)[] }>();
 
   private constructor(
     readonly role: Role,
@@ -126,6 +144,13 @@ export class CollabSession {
       throw e;
     }
     return s;
+  }
+
+  /** 貼った画像をほかの全員に送る。10 MB を超えるなら送らずに例外を投げる */
+  shareImage(img: SharedImage) {
+    if (img.bytes.byteLength > MAX_IMAGE) throw new Error("画像が大きすぎて共有できません（1 枚 10 MB まで）");
+    this.images.set(img.path, img);
+    this.sendImage(EVERYONE, img);
   }
 
   approve(peer: number) {
@@ -208,6 +233,7 @@ export class CollabSession {
         encoding.writeVarString(info, JSON.stringify({ file: this.file }));
         this.enqueue({ to: from, data: encoding.toUint8Array(info) });
         this.sendAwareness(from, [...this.awareness.getStates().keys()]);
+        for (const img of this.images.values()) this.sendImage(from, img);
       }
       if (t === syncProtocol.messageYjsSyncStep2 && this.status === "syncing") this.setStatus("live");
     } else if (kind === MSG_AWARENESS) {
@@ -222,6 +248,59 @@ export class CollabSession {
       } catch {
         this.handlers.warning?.("ホストからの知らせを読めませんでした");
       }
+    } else if (kind === MSG_IMAGE) {
+      this.onImagePart(from, dec);
+    }
+  }
+
+  /** 画像の断片を集め、全部そろったら images に入れて知らせる */
+  private onImagePart(from: number, dec: decoding.Decoder) {
+    const path = decoding.readVarString(dec);
+    const link = decoding.readVarString(dec);
+    const size = decoding.readVarUint(dec);
+    const index = decoding.readVarUint(dec);
+    const count = decoding.readVarUint(dec);
+    const part = decoding.readVarUint8Array(dec);
+    const key = `${from}:${path}`;
+    // 数を確かめてから断片の置き場所を作る（大きな count で場所を取られないように）
+    if (!path || size > MAX_IMAGE || count !== Math.max(1, Math.ceil(size / IMAGE_CHUNK)) || index >= count) {
+      this.incoming.delete(key);
+      return this.handlers.warning?.(`画像を受け取れませんでした: ${path}`);
+    }
+    let entry = this.incoming.get(key);
+    if (!entry || entry.size !== size || entry.link !== link) {
+      // 断片の抜けを some で見るので、穴の無い配列にする（some は穴を飛ばす）
+      entry = { size, link, parts: new Array<Uint8Array | undefined>(count).fill(undefined) };
+      this.incoming.set(key, entry);
+    }
+    entry.parts[index] = part;
+    if (entry.parts.some((p) => !p)) return;
+    this.incoming.delete(key);
+    const bytes = new Uint8Array(size);
+    let at = 0;
+    for (const p of entry.parts as Uint8Array[]) {
+      if (at + p.byteLength > size) return this.handlers.warning?.(`画像を受け取れませんでした: ${path}`);
+      bytes.set(p, at);
+      at += p.byteLength;
+    }
+    if (at !== size) return this.handlers.warning?.(`画像を受け取れませんでした: ${path}`);
+    const img: SharedImage = link ? { path, bytes, link } : { path, bytes };
+    this.images.set(path, img);
+    this.handlers.image?.(img);
+  }
+
+  private sendImage(to: number, { path, bytes, link }: SharedImage) {
+    const count = Math.max(1, Math.ceil(bytes.byteLength / IMAGE_CHUNK));
+    for (let i = 0; i < count; i++) {
+      const enc = encoding.createEncoder();
+      encoding.writeVarUint(enc, MSG_IMAGE);
+      encoding.writeVarString(enc, path);
+      encoding.writeVarString(enc, link ?? "");
+      encoding.writeVarUint(enc, bytes.byteLength);
+      encoding.writeVarUint(enc, i);
+      encoding.writeVarUint(enc, count);
+      encoding.writeVarUint8Array(enc, bytes.subarray(i * IMAGE_CHUNK, (i + 1) * IMAGE_CHUNK));
+      this.enqueue({ to, data: encoding.toUint8Array(enc) });
     }
   }
 

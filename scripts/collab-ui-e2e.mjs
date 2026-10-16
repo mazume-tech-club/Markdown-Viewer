@@ -2,14 +2,16 @@
 // 先に次を動かしておく：relay で `npm run dev -- --port 8787 --ip 127.0.0.1`、ルートで `npm run dev`、
 // src-tauri と collab-plugin で `cargo build`。実行は `node scripts/collab-ui-e2e.mjs`
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const ROOT = fileURLToPath(new URL("..", import.meta.url)).replace(/[\\/]$/, "");
 const TMP = `${tmpdir()}/mdp-collab-ui-e2e`;
-const EXE = `${ROOT}/src-tauri/target/debug/markdown-preview.exe`;
-const PLUGIN = `${ROOT}/collab-plugin/target/debug/markdown-preview-collab.exe`;
+// CARGO_TARGET_DIR を決めていれば、ビルドはそこに出る
+const TARGET = process.env.CARGO_TARGET_DIR?.replace(/\\/g, "/");
+const EXE = `${TARGET ?? `${ROOT}/src-tauri/target`}/debug/markdown-preview.exe`;
+const PLUGIN = `${TARGET ?? `${ROOT}/collab-plugin/target`}/debug/markdown-preview-collab.exe`;
 const RELAY = "http://127.0.0.1:8787";
 
 rmSync(TMP, { recursive: true, force: true });
@@ -88,6 +90,27 @@ const setValue = (id, v) =>
 const click = (sel) => `(() => { const el = document.querySelector(${JSON.stringify(sel)}); if (!el || el.disabled) return false; el.click(); return true })()`;
 const editorText = `[...document.querySelectorAll(".cm-content .cm-line")].map((l) => l.textContent).join("\\n")`;
 
+/** Ctrl+キーを押す（メニューはネイティブなので、ショートカットで操作する） */
+async function ctrlKey(app, key, code, vk) {
+  await app.send("Input.dispatchKeyEvent", { type: "keyDown", key, code, windowsVirtualKeyCode: vk, modifiers: 2 });
+  await app.send("Input.dispatchKeyEvent", { type: "keyUp", key, code, windowsVirtualKeyCode: vk, modifiers: 2 });
+}
+
+/** 共同編集の画面を出す（「ツール → 共同編集…」はネイティブのメニューで CDP から押せないため、直接開く） */
+const openCollab = `(() => { document.getElementById("collab").hidden = false; return true })()`;
+
+/** 1×1 の PNG をクリップボードから貼り付けたことにする */
+const pastePng = `(() => {
+  const b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+  const dt = new DataTransfer();
+  dt.items.add(new File([bytes], "image.png", { type: "image/png" }));
+  const el = document.querySelector(".cm-content");
+  el.focus();
+  el.dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  return true;
+})()`;
+
 /** エディタの末尾に文字を打つ（本物のキー入力として） */
 async function typeAtEnd(app, text) {
   await app.evaluate(`document.querySelector(".cm-content").focus(), true`);
@@ -108,25 +131,25 @@ try {
   const host = await connect(9301);
   const guest = await connect(9302);
   for (const app of [host, guest]) {
-    await until(app, `!document.getElementById("btn-collab").hidden`, "共同編集ボタンが出る");
+    await until(app, `document.querySelector(".cm-content") !== null`, "画面が出る");
     await app.evaluate(click(`[data-mode="split"]`));
   }
-  check("プラグインがあると共同編集ボタンが出る", true);
 
-  // 中継サーバーを設定する（設定画面）
+  // 中継サーバーを設定する（設定画面。プラグインがあるときだけ「共同編集」の欄が出る）
   for (const app of [host, guest]) {
-    await app.evaluate(click("#btn-settings"));
+    await ctrlKey(app, ",", "Comma", 188);
     await until(app, `!document.getElementById("settings-collab").hidden`, "設定に共同編集の欄");
     await app.evaluate(setValue("set-relay", RELAY));
     await app.evaluate(click("#set-relay-save"));
     await until(app, `document.getElementById("set-relay-status").textContent.includes("保存しました")`, "中継サーバーを保存");
     await app.evaluate(click("#settings-close"));
   }
+  check("プラグインがあると設定に共同編集の欄が出る", true);
   check("設定で中継サーバーの URL を保存できる", true, readFileSync(`${TMP}/host-collab.json`, "utf8").replace(/\s+/g, " "));
 
   // ホストが始める
   await until(host, `${editorText}.includes("最初の行")`, "ホストがファイルを開いている");
-  await host.evaluate(click("#btn-collab"));
+  await host.evaluate(openCollab);
   await host.evaluate(setValue("collab-name", "土屋"));
   await host.evaluate(click("#collab-start"));
   const invite = await until(host, `document.getElementById("collab-invite-out").value`, "招待リンクが出る");
@@ -134,7 +157,7 @@ try {
   check("ホストのタブに共同編集の印", Boolean(await until(host, `document.querySelector(".tab .tab-collab") !== null`, "タブの印")));
 
   // 参加者が参加を求める
-  await guest.evaluate(click("#btn-collab"));
+  await guest.evaluate(openCollab);
   await guest.evaluate(setValue("collab-name", "佐藤"));
   await guest.evaluate(setValue("collab-invite-in", invite));
   await guest.evaluate(click("#collab-join"));
@@ -142,7 +165,7 @@ try {
   check("参加者は承認待ちになり、書けない", (await guest.evaluate(`document.querySelector(".cm-content").contentEditable`)) === "false");
 
   // ホストが承認する
-  const req = await until(host, `document.querySelector(".collab-request span")?.textContent`, "参加の要求のバナー");
+  const req = await until(host, `document.querySelector(".collab-request span")?.textContent`, "参加の要求のモーダル");
   check("ホストに参加の要求が出る", req.includes("佐藤"), req);
   await host.evaluate(click(".collab-request button.primary"));
   await until(guest, `${editorText}.includes("最初の行")`, "参加者にホストの内容が届く");
@@ -165,11 +188,24 @@ try {
   const cursor = await until(host, `document.querySelector(".cm-ySelectionInfo")?.textContent`, "相手の名前付きカーソル", 8000).catch((e) => String(e));
   check("ホストの画面に参加者の名前付きカーソル", cursor === "佐藤", cursor);
 
+  // 参加者が画像を貼り付ける
+  await guest.evaluate(`document.getElementById("collab").hidden = true, true`);
+  await typeAtEnd(guest, "\n");
+  await guest.evaluate(pastePng);
+  const link = await until(guest, `(${editorText}.match(/!\\[\\]\\(([^)]*image-[^)]*-p\\d+\\.png)\\)/) ?? [])[1]`, "参加者のエディタに画像のリンク");
+  check("参加者が画像を貼り付けられる", true, link);
+  const hostImg = await until(host, `[...document.querySelectorAll("#preview img")].find((i) => i.src.startsWith("blob:") && i.naturalWidth === 1)?.src`, "ホストのプレビューに画像");
+  check("参加者が貼った画像がホストのプレビューに出る", Boolean(hostImg));
+
   // ホストが保存する
-  await host.evaluate(click("#btn-save"));
+  await host.evaluate(`document.querySelector(".cm-content").focus(), true`);
+  await ctrlKey(host, "s", "KeyS", 83);
   await sleep(800);
   const saved = readFileSync(md, "utf8");
   check("ホストが保存するとファイルに両方の編集が入る", saved.includes("参加者が書いた行") && saved.includes("ホストが書いた行"), JSON.stringify(saved));
+  const assets = `${TMP}/議事録.assets`;
+  const written = existsSync(assets) ? readdirSync(assets) : [];
+  check("参加者が貼った画像がホストの .assets に書き出される", written.some((f) => /-p\d+\.png$/.test(f)), written.join(", "));
 
   // ホストのアプリが落ちたら、参加者は読み取り専用になる
   procs[0].kill();

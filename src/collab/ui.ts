@@ -1,5 +1,5 @@
 // 共同編集の画面（docs/collaboration-stage1-plan.md の作業 6）。
-// プラグインがあるときだけ、メニューの「ツール → 共同編集」・参加の要求のバナー・設定の「中継サーバー」を出す
+// プラグインがあるときだけ、メニューの「ツール → 共同編集」・参加の要求のモーダル・設定の「中継サーバー」を出す
 import { ask } from "@tauri-apps/plugin-dialog";
 
 import type { CollabSession, SessionHandlers } from "./session";
@@ -20,6 +20,8 @@ export interface CollabUiDeps {
 }
 
 const NAME_KEY = "collab.name";
+/** 参加に使った招待リンク（クリアするまで残す） */
+const INVITE_KEY = "collab.invite";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -38,6 +40,7 @@ export function setupCollabUi(deps: CollabUiDeps) {
   const startBtn = $<HTMLButtonElement>("collab-start");
   const startNote = $("collab-start-note");
   const inviteIn = $<HTMLInputElement>("collab-invite-in");
+  const inviteClear = $<HTMLButtonElement>("collab-invite-clear");
   const joinBtn = $<HTMLButtonElement>("collab-join");
   const stateLabel = $("collab-state");
   const inviteRow = $("collab-invite-row");
@@ -46,7 +49,8 @@ export function setupCollabUi(deps: CollabUiDeps) {
   const peersList = $("collab-peers");
   const leaveBtn = $<HTMLButtonElement>("collab-leave");
   const errorEl = $("collab-error");
-  const requestsBar = $("collab-requests");
+  const requestsModal = $("collab-requests");
+  const requestsList = $("collab-requests-list");
   const relaySection = $("settings-collab");
   const relayIn = $<HTMLInputElement>("set-relay");
   const relaySave = $<HTMLButtonElement>("set-relay-save");
@@ -83,12 +87,13 @@ export function setupCollabUi(deps: CollabUiDeps) {
 
   function renderRequests(s: CollabSession | undefined) {
     if (!s || s.role !== "host" || !requests.length) {
-      requestsBar.hidden = true;
-      requestsBar.replaceChildren();
+      requestsModal.hidden = true;
+      requestsList.replaceChildren();
       return;
     }
-    requestsBar.hidden = false;
-    requestsBar.replaceChildren(
+    const wasOpen = !requestsModal.hidden;
+    requestsModal.hidden = false;
+    requestsList.replaceChildren(
       ...requests.map((r) => {
         const row = document.createElement("div");
         row.className = "collab-request";
@@ -105,6 +110,8 @@ export function setupCollabUi(deps: CollabUiDeps) {
         return row;
       }),
     );
+    // 下の文書に打ち込み続けないよう、先頭の要求の「承認」にフォーカスを移す
+    if (!wasOpen || !requestsModal.contains(document.activeElement)) requestsList.querySelector<HTMLButtonElement>("button.primary")?.focus();
   }
 
   async function decide(peer: number, approve: boolean) {
@@ -134,6 +141,7 @@ export function setupCollabUi(deps: CollabUiDeps) {
     startNote.classList.toggle("collab-warn", Boolean(why));
     startBtn.disabled = busy || Boolean(why);
     joinBtn.disabled = busy;
+    inviteClear.disabled = busy;
     if (live) {
       const host = s.role === "host";
       stateLabel.textContent = host && s.status === "live" ? "共同編集中（あなたがホスト）" : STATE_LABEL[s.status];
@@ -194,9 +202,16 @@ export function setupCollabUi(deps: CollabUiDeps) {
       inviteIn.focus();
       return;
     }
+    localStorage.setItem(INVITE_KEY, invite);
     void run(async () => {
-      if (await deps.join(invite, name, handlers)) inviteIn.value = "";
+      await deps.join(invite, name, handlers);
     });
+  });
+
+  inviteClear.addEventListener("click", () => {
+    inviteIn.value = "";
+    localStorage.removeItem(INVITE_KEY);
+    inviteIn.focus();
   });
 
   async function copyInvite(invite: string) {
@@ -227,6 +242,7 @@ export function setupCollabUi(deps: CollabUiDeps) {
   function open() {
     showError(null);
     nameIn.value = localStorage.getItem(NAME_KEY) ?? "";
+    inviteIn.value = localStorage.getItem(INVITE_KEY) ?? "";
     refresh();
     overlay.hidden = false;
     const focus = deps.session() ? $("collab-close") : !nameIn.value ? nameIn : startBtn.disabled ? inviteIn : startBtn;
@@ -273,6 +289,8 @@ export function setupCollabUi(deps: CollabUiDeps) {
     open,
     close,
     isOpen: () => !overlay.hidden,
+    /** 参加の要求のモーダルを出しているか */
+    isRequestOpen: () => !requestsModal.hidden,
     refresh,
     /** 設定画面を開いたとき（中継サーバーの URL を読み直す） */
     onSettingsOpen() {
