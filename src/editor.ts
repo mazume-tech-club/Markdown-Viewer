@@ -1,12 +1,14 @@
 import { EditorView, basicSetup } from "codemirror";
 import { Compartment, EditorSelection, EditorState, Prec, type Extension, type SelectionRange } from "@codemirror/state";
 import { keymap, type Command } from "@codemirror/view";
-import { indentLess, insertTab, redo, undo } from "@codemirror/commands";
+import { indentLess, redo, undo } from "@codemirror/commands";
 import { openSearchPanel, selectNextOccurrence, selectSelectionMatches } from "@codemirror/search";
 import { indentUnit } from "@codemirror/language";
 import { markdown } from "@codemirror/lang-markdown";
 import { languages } from "@codemirror/language-data";
 import { oneDark } from "@codemirror/theme-one-dark";
+
+import { indentListOrTab } from "./listindent";
 
 export interface Editor {
   view: EditorView;
@@ -157,10 +159,10 @@ export function createEditor(
         basicSetup,
         markdown({ codeLanguages: languages }),
         EditorView.lineWrapping,
-        // Tab でフォーカスがプレビューへ移らないよう、タブ文字を入れる（範囲選択中は行ごと字下げ）。
+        // Tab でフォーカスがプレビューへ移らないよう、タブ文字を入れる（範囲選択中と箇条書きの行は行ごと字下げ）。
         // Shift+Tab は字下げを戻す。字下げの単位もタブ文字にそろえる
         indentUnit.of("\t"),
-        Prec.high(keymap.of([{ key: "Tab", run: insertTab, shift: indentLess }])),
+        Prec.high(keymap.of([{ key: "Tab", run: indentListOrTab, shift: indentLess }])),
         // VS Code と同じキー（Ctrl+D・Ctrl+Alt+↑↓・Ctrl+U は basicSetup にある）
         Prec.high(
           keymap.of([
