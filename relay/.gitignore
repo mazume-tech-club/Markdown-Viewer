@@ -1,0 +1,5 @@
+node_modules/
+.wrangler/
+.dev.vars
+# wrangler types で作り直す（npm run typecheck が作る）
+worker-configuration.d.ts

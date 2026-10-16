@@ -40,12 +40,16 @@ jobs:
 
       - uses: swatinem/rust-cache@v2
         with:
-          workspaces: src-tauri
+          workspaces: |
+            src-tauri
+            collab-plugin
 
       - run: npm ci
 
       - name: Rust tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: |
+          cargo test --manifest-path src-tauri/Cargo.toml
+          cargo test --manifest-path collab-plugin/Cargo.toml
 
       - uses: tauri-apps/tauri-action@v1
         env:
@@ -62,8 +66,19 @@ jobs:
 
             > 署名していないインストーラのため、初回実行時に Windows SmartScreen の警告が出ることがあります。「詳細情報」→「実行」で進めてください。
 
+            **共同編集**を使う人だけ、`markdown-preview-collab.exe`（共同編集プラグイン）もダウンロードし、Markdown Preview 本体と同じフォルダ（既定は `%LOCALAPPDATA%\Markdown Preview`）に置いてください。
+
             使い方は [README](https://github.com/${{ github.repository }}#readme) を参照してください。
           releaseDraft: false
           prerelease: false
           generateReleaseNotes: true
           uploadUpdaterJson: true
+
+      # 共同編集プラグインはインストーラに入れず、Release に別のファイルとして添付する（docs/adr/0003）
+      - name: Attach collab plugin
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cargo build --release --manifest-path collab-plugin/Cargo.toml
+          gh release upload "${{ github.ref_name }}" collab-plugin/target/release/markdown-preview-collab.exe --clobber

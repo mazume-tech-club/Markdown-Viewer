@@ -40,6 +40,7 @@ export interface MenuActions {
   diagram(): void;
   annotate(): void;
   settings(): void;
+  collab(): void;
   help(): void;
   checkUpdate(): void;
   about(): void;
@@ -76,6 +77,9 @@ const TERM_POSITIONS: [TermPosition, string][] = [
   ["bottom", "下"],
   ["right", "右"],
 ];
+
+/** top の中の「ツール」の位置 */
+const TOOLS = 4;
 
 const label = (text: string, keys?: string) => (keys ? `${text}\t${keys}` : text);
 
@@ -211,6 +215,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
       ...m.termPositionItems.map((it, i) => it.setChecked(TERM_POSITIONS[i][0] === state.terminalPosition)),
     ]);
   };
+  let collab: Promise<MenuItem | null> = Promise.resolve(null);
   // 連続して呼ばれても順番に映す（古い状態で上書きしないよう、最後に最新の state を映す）
   let queue = Promise.resolve();
   const update = (patch: Partial<MenuState>) => {
@@ -227,5 +232,19 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     setTerminal: (terminalOpen: boolean, terminalPosition: TermPosition) => update({ terminalOpen, terminalPosition }),
     setCanCopyPath: (canCopyPath: boolean) => update({ canCopyPath }),
     setModal: (modal: boolean) => modal !== state.modal && update({ modal }),
+    /** 「ツール」の先頭に「共同編集」を出す（共同編集プラグインがあるときだけ）。label は人数入りの表示名 */
+    setCollab: (text: string) => {
+      collab = collab.then(async (it) => {
+        if (it) {
+          await it.setText(text);
+          return it;
+        }
+        const m = await ready;
+        const created = await MenuItem.new({ text, action: () => actions.collab() });
+        await m.top[TOOLS].insert([created, await sep()], 0);
+        return created;
+      });
+      collab.catch((err) => console.error("menu", err));
+    },
   };
 }

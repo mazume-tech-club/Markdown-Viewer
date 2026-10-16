@@ -1,5 +1,5 @@
 import { EditorView, basicSetup } from "codemirror";
-import { Compartment, EditorSelection, EditorState, Prec, type SelectionRange } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, type Extension, type SelectionRange } from "@codemirror/state";
 import { keymap, type Command } from "@codemirror/view";
 import { indentLess, insertTab, redo, undo } from "@codemirror/commands";
 import { openSearchPanel, selectNextOccurrence, selectSelectionMatches } from "@codemirror/search";
@@ -25,8 +25,8 @@ export interface Editor {
   cursorLine(): number;
   /** カーソルの、表示領域上端からの位置（px）。画面外なら null */
   cursorOffset(): number | null;
-  /** タブ用に、この本文の編集状態（Undo 履歴・カーソル込み）を新しく作る */
-  createState(text: string): EditorState;
+  /** タブ用に、この本文の編集状態（Undo 履歴・カーソル込み）を新しく作る。extra は共同編集用の extension など */
+  createState(text: string, extra?: Extension): EditorState;
   getState(): EditorState;
   /** タブの切り替え。テーマと読み取り専用は今の設定で掛け直す */
   setState(state: EditorState): void;
@@ -149,10 +149,11 @@ export function createEditor(
   const themeExt = () => (isDark ? oneDark : []);
   const readOnlyExt = () => (isReadOnly ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []);
 
-  const createState = (doc: string) =>
+  const createState = (doc: string, extra: Extension = []) =>
     EditorState.create({
       doc,
       extensions: [
+        extra,
         basicSetup,
         markdown({ codeLanguages: languages }),
         EditorView.lineWrapping,

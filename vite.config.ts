@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
-    watch: { ignored: ["**/src-tauri/**"] },
+    watch: { ignored: ["**/src-tauri/**", "**/collab-plugin/**", "**/relay/**"] },
   },
   build: {
     target: "es2022",
