@@ -1,5 +1,6 @@
 // ---------- Graphviz の図の関連の強調（docs/diagram-link-and-highlight-requirements.md の要件 B） ----------
 // ノードをクリックすると、そのノードを端に持つ線と線の反対側のノードを強調し、ほかを薄くする。
+// 同じ図の中でリンク先（URL）が同じノードは「同じもの」（例: 図の別の場所に出てくる同じテーブル）として、別の色で示す。
 // 対象は Graphviz が描いた SVG（ルートに <g class="graph"> がある）すべて。dot・c4 のほか、
 // アプリが DOT にして描く erd・flow・screen・markmap でも効く。Mermaid は構造が違うので対象外。
 // 強調は CSS クラスの付け外しだけで行い、SVG の属性は変えない（再描画・PDF 出力では元の図に戻る）。
@@ -109,17 +110,29 @@ function graphOf(svg: SVGSVGElement): Graph {
 
 function clear(svg: SVGSVGElement) {
   svg.classList.remove("gf-active");
-  for (const el of svg.querySelectorAll(".gf-on, .gf-origin")) el.classList.remove("gf-on", "gf-origin");
+  for (const el of svg.querySelectorAll(".gf-on, .gf-origin, .gf-same")) el.classList.remove("gf-on", "gf-origin", "gf-same");
 }
+
+/** ノードのリンク先（リンクが無ければ null） */
+const linkOf = (node: Element): string | null => {
+  const a = node.querySelector("a");
+  return a?.getAttribute("href") ?? a?.getAttribute("xlink:href") ?? null;
+};
 
 function focus(svg: SVGSVGElement, id: string) {
   clear(svg);
   const g = graphOf(svg);
   const entry = g.adj.get(id);
   svg.classList.add("gf-active");
-  g.nodes.get(id)?.classList.add("gf-on", "gf-origin");
+  const origin = g.nodes.get(id);
+  origin?.classList.add("gf-on", "gf-origin");
   for (const n of entry?.neighbors ?? []) g.nodes.get(n)?.classList.add("gf-on");
   for (const i of entry?.edges ?? []) g.edges[i].classList.add("gf-on");
+  // リンク先が同じほかのノード（同じものが図の別の場所にも出ている）。線や相手までは広げない
+  const link = origin && linkOf(origin);
+  if (link) {
+    for (const [n, el] of g.nodes) if (n !== id && linkOf(el) === link) el.classList.add("gf-same");
+  }
 }
 
 export type TapResult = { action: "focus" | "clear" } | { action: "link"; a: Element } | null;

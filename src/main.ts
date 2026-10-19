@@ -17,6 +17,7 @@ import { planImages, rewriteImageLinks } from "./export";
 import { fillCached, renderDiagrams } from "./diagrams";
 import { setupViewer, viewableAt } from "./viewer";
 import { clearGraphFocus, tapGraph } from "./graphfocus";
+import { isTocEnabled, setupToc } from "./toc";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
 import { loadSession, saveSession } from "./session";
@@ -102,6 +103,7 @@ const menuBar = setupMenuBar(
     selectAllMatches: () => withEditor(() => editor.selectAllMatches()),
     setMode: (mode) => setMode(mode),
     toggleFilePanel: () => filePanel.toggle(),
+    toggleToc: () => toc.toggle(),
     toggleTerminal: () => terminal.toggle(),
     terminalInFileDir: () => void terminal.openInFileDir(),
     setTerminalPosition: (pos) => terminal.setPosition(pos),
@@ -127,6 +129,7 @@ const menuBar = setupMenuBar(
     theme: getThemePref(),
     docStyle: getDocStyle(),
     filePanelOpen: false,
+    tocOpen: isTocEnabled(),
     filePanelEnabled: isFilePanelEnabled(),
     terminalOpen: false,
     terminalPosition: getTermPosition(),
@@ -135,6 +138,15 @@ const menuBar = setupMenuBar(
   },
 );
 void menuBar.ready.catch(showError);
+
+// 目次（プレビューモードのとき、プレビューの左に見出しを並べる。toc.ts）
+const toc = setupToc({
+  preview,
+  pane: previewPane,
+  nav: $("toc"),
+  isPreviewMode: () => state.mode === "preview",
+  onChange: (open) => menuBar.setToc(open),
+});
 
 /** 右下に一時的なメッセージを出す（「パスをコピーしました」など）。ms が 0 なら次に呼ぶまで出したまま。空文字で消す */
 let statusTimer = 0;
@@ -234,6 +246,7 @@ function render(): Promise<void> {
   const scroll = previewPane.scrollTop;
   preview.replaceChildren(tpl.content);
   previewPane.scrollTop = scroll;
+  toc.update();
   markCursorLine();
   followCursor();
   // 図が描けると高さが変わるので、もう一度カーソルの位置に合わせる
@@ -369,6 +382,7 @@ function setMode(mode: Mode) {
     b.classList.toggle("active", b.dataset.mode === mode);
   }
   menuBar.setMode(mode);
+  toc.refresh();
   markCursorLine();
   if (mode !== "preview") editor.view.focus();
   if (!cursor) return;

@@ -29,6 +29,7 @@ export interface MenuActions {
   selectAllMatches(): void;
   setMode(mode: Mode): void;
   toggleFilePanel(): void;
+  toggleToc(): void;
   toggleTerminal(): void;
   terminalInFileDir(): void;
   setTerminalPosition(position: TermPosition): void;
@@ -53,6 +54,7 @@ interface MenuState {
   theme: ThemePref;
   docStyle: DocStyle;
   filePanelOpen: boolean;
+  tocOpen: boolean;
   filePanelEnabled: boolean;
   terminalOpen: boolean;
   terminalPosition: TermPosition;
@@ -124,6 +126,11 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
       enabled: state.filePanelEnabled,
       action: () => checked(actions.toggleFilePanel),
     });
+    const toc = CheckMenuItem.new({
+      text: "目次（プレビュー）",
+      checked: state.tocOpen,
+      action: () => checked(actions.toggleToc),
+    });
     const terminal = CheckMenuItem.new({
       text: label("ターミナル", "Ctrl+@"),
       checked: state.terminalOpen,
@@ -177,6 +184,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
         modeItems,
         sep(),
         filePanel,
+        toc,
         terminal,
         termFileDir,
         sub("ターミナルの位置", [termPositionItems]),
@@ -204,7 +212,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     ]);
     const menu = await Menu.new({ items: top });
     await menu.setAsWindowMenu(getCurrentWindow());
-    return { top, copyPath: await copyPath, modeItems: await modeItems, themeItems: await themeItems, docStyleItems: await docStyleItems, filePanel: await filePanel, terminal: await terminal, termFileDir: await termFileDir, termPositionItems: await termPositionItems };
+    return { top, copyPath: await copyPath, modeItems: await modeItems, themeItems: await themeItems, docStyleItems: await docStyleItems, filePanel: await filePanel, toc: await toc, terminal: await terminal, termFileDir: await termFileDir, termPositionItems: await termPositionItems };
   })();
 
   /** 今の state をメニューに映す（チェックは毎回すべて付け直す） */
@@ -218,6 +226,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
       ...m.themeItems.map((it, i) => it.setChecked(THEMES[i][0] === state.theme)),
       ...m.docStyleItems.map((it, i) => it.setChecked(DOC_STYLES[i][0] === state.docStyle)),
       m.filePanel.setChecked(state.filePanelOpen),
+      m.toc.setChecked(state.tocOpen),
       m.filePanel.setEnabled(state.filePanelEnabled),
       m.terminal.setChecked(state.terminalOpen),
       ...m.termPositionItems.map((it, i) => it.setChecked(TERM_POSITIONS[i][0] === state.terminalPosition)),
@@ -237,6 +246,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     setTheme: (theme: ThemePref) => update({ theme }),
     setDocStyle: (docStyle: DocStyle) => update({ docStyle }),
     setFilePanel: (filePanelOpen: boolean, filePanelEnabled: boolean) => update({ filePanelOpen, filePanelEnabled }),
+    setToc: (tocOpen: boolean) => update({ tocOpen }),
     setTerminal: (terminalOpen: boolean, terminalPosition: TermPosition) => update({ terminalOpen, terminalPosition }),
     setCanCopyPath: (canCopyPath: boolean) => update({ canCopyPath }),
     setModal: (modal: boolean) => modal !== state.modal && update({ modal }),
