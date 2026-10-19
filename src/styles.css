@@ -426,6 +426,14 @@ button:hover { background: var(--btn-hover); }
 .diagram[data-kind="math"] { overflow-y: hidden; }
 .diagram.math-inline { display: inline; margin: 0; overflow: visible; text-align: inherit; }
 .diagram.math-inline.failed { display: block; }
+/* Graphviz の図の関連の強調（graphfocus.ts）。クラスの付け外しだけで行い、元の塗りは変えない。
+   ノードはクリックできることを示す（起点をもう一度押すとリンク） */
+svg:has(> g.graph) g.node { cursor: pointer; }
+svg.gf-active :is(g.node, g.edge, g.cluster):not(.gf-on) { opacity: 0.25; }
+svg :is(g.node, g.edge, g.cluster) { transition: opacity 0.12s; }
+svg.gf-active g.node.gf-on :is(polygon, ellipse, path, polyline) { stroke: var(--accent); stroke-width: 2.5px; }
+svg.gf-active g.edge.gf-on :is(path, polyline) { stroke: var(--accent); stroke-width: 2.5px; }
+svg.gf-active g.edge.gf-on polygon { stroke: var(--accent); fill: var(--accent); }
 /* オプションがオフの図の案内（コードブロックの下） */
 .diagram-off { margin: -8px 0 16px; font-size: 12px; color: var(--muted); }
 .diagram-error {
@@ -500,6 +508,8 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .viewer[hidden] { display: none; }
 .viewer-stage { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; user-select: none; }
 .viewer-stage.dragging { cursor: grabbing; }
+/* 拡大ビューアの中でも、図の中のリンクは押せることを示す（Graphviz のノードは下の svg:has(> g.graph) の指定で効く） */
+.viewer-stage:not(.dragging) .viewer-content a { cursor: pointer; }
 .viewer-stage > .viewer-content {
   position: absolute;
   left: 0;

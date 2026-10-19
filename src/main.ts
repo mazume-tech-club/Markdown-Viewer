@@ -16,6 +16,7 @@ import { findImageRefs, findImageSource, highlighterReady, onHighlighterLoaded, 
 import { planImages, rewriteImageLinks } from "./export";
 import { fillCached, renderDiagrams } from "./diagrams";
 import { setupViewer, viewableAt } from "./viewer";
+import { clearGraphFocus, tapGraph } from "./graphfocus";
 import type { EditorState } from "@codemirror/state";
 import { createEditor } from "./editor";
 import { loadSession, saveSession } from "./session";
@@ -1293,11 +1294,34 @@ const annotator = lazyTool(async () => (await import("./annotator/annotator")).s
 /** 「図」: カーソルが画像の行にあれば注釈エディタ、それ以外は図のビルダー */
 const openDiagramTool = () => (editor.imageAtCursor() ? annotator.open() : builder.open());
 
-// プレビューの図や画像をクリック、または右クリック →「拡大して見る」で拡大ビューアを開く
-const viewer = setupViewer();
+// プレビューの図や画像をクリック、または右クリック →「拡大して見る」で拡大ビューアを開く。
+// ビューアの中でも、Graphviz の図のノードの強調と図の中のリンクが効く（docs/diagram-link-and-highlight-requirements.md）
+const viewer = setupViewer({
+  onTap(target) {
+    const r = tapGraph(target);
+    if (r?.action === "focus" || r?.action === "clear") return;
+    const a = r?.action === "link" ? r.a : target.closest("a");
+    if (a) void followLink(a, true).catch(showError);
+  },
+});
 function openViewer(el: HTMLElement | SVGSVGElement) {
   if (!viewer.open(el)) void message("画像を読み込めていないため、拡大して見られません。", { title: "拡大ビューア", kind: "warning" });
 }
+// Graphviz の図のノードをクリック → つながっている線と相手を強調する。強調の起点をもう一度クリックするとリンクを踏む。
+// 強調中に図の余白を押したら解除だけして、拡大ビューアは開かない。ほかの click の処理より先に決めるため capture で受ける
+preview.addEventListener(
+  "click",
+  (e) => {
+    if (e.button !== 0 || !window.getSelection()?.isCollapsed) return;
+    const r = tapGraph(e.target as Element);
+    if (!r) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (r.action === "link") void followLink(r.a, false).catch(showError);
+  },
+  { capture: true },
+);
+
 preview.addEventListener("click", (e) => {
   // リンクの付いた画像・図の中のリンクは、リンクを優先する
   if ((e.target as Element).closest("a")) return;
@@ -1867,13 +1891,15 @@ preview.addEventListener("click", async (e) => {
   }
 });
 
-preview.addEventListener("click", async (e) => {
-  const a = (e.target as Element).closest("a");
-  if (!a) return;
+/**
+ * プレビュー・拡大ビューアの中のリンクを踏む（HTML の <a> も SVG の <a xlink:href> も）。
+ * 本文の中へのリンクと別の .md は、ビューアの中からなら閉じてから移る（開いたままだと見えないため）。外部のページはビューアを開いたまま
+ */
+async function followLink(a: Element, fromViewer: boolean) {
   const href = a.getAttribute("href") ?? a.getAttribute("xlink:href");
-  e.preventDefault();
   if (!href) return;
   if (href.startsWith("#")) {
+    if (fromViewer) viewer.close();
     const id = decodeURIComponent(href.slice(1));
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
@@ -1884,8 +1910,16 @@ preview.addEventListener("click", async (e) => {
   }
   if (hasScheme(href) || !active.path) return;
   const target = resolvePath(dirname(active.path), decodeURIComponent(href.split("#")[0]));
+  if (fromViewer) viewer.close();
   if (isMarkdownPath(target)) await openInTab(target);
   else await revealItemInDir(target).catch(showError);
+}
+
+preview.addEventListener("click", async (e) => {
+  const a = (e.target as Element).closest("a");
+  if (!a) return;
+  e.preventDefault();
+  await followLink(a, false);
 });
 
 // ---------- ダイアログ表示中のメニュー ----------
@@ -1939,6 +1973,8 @@ window.addEventListener(
     else if (!settingsOverlay.hidden && e.key === "Escape") run(() => closeSettings());
     else if (collabUi.isOpen() && e.key === "Escape") run(() => collabUi.close());
     else if (!openPathOverlay.hidden && e.key === "Escape") run(() => closeOpenPath());
+    // 図の関連の強調を解除する（強調していないときの Esc はエディタなどに渡す）
+    else if (e.key === "Escape" && preview.querySelector("svg.gf-active")) run(() => clearGraphFocus(preview));
     // Ctrl+O より先に判定する（Shift 付きも key は "o"）
     else if (mod && e.shiftKey && key === "o") run(() => openPathPrompt());
     else if (!pdfOverlay.hidden && mod && key === "s") run(() => savePdf());

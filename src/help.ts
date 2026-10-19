@@ -14,6 +14,7 @@ import skillSource from "./help/skill.md?raw";
 import { enableAllOptions, highlighterReady, onHighlighterLoaded, renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
 import { markJudgeCells } from "./judge";
+import { tapGraph } from "./graphfocus";
 
 interface Item {
   id: string;
@@ -214,10 +215,16 @@ document.addEventListener("click", async (e) => {
     }
     return;
   }
-  const a = target.closest("a");
+  // Graphviz の図の例も、ノードをクリックすると関連を強調する（起点をもう一度押すとリンク）
+  const tapped = tapGraph(target);
+  if (tapped && tapped.action !== "link") {
+    e.preventDefault();
+    return;
+  }
+  const a = tapped?.action === "link" ? tapped.a : target.closest("a");
   if (!a) return;
   e.preventDefault();
-  const href = a.getAttribute("href") ?? "";
+  const href = a.getAttribute("href") ?? a.getAttribute("xlink:href") ?? "";
   if (href.startsWith("#")) {
     document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView({ block: "start" });
   } else if (/^https?:/i.test(href)) {

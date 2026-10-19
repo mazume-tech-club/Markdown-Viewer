@@ -69,7 +69,15 @@ export type Viewer = {
   handleKey(e: KeyboardEvent): boolean;
 };
 
-export function setupViewer(): Viewer {
+export interface ViewerOptions {
+  /**
+   * 図の上を動かさずに押して離したとき（クリック）。押した所の要素を渡す。図の外なら呼ばずにビューアを閉じる。
+   * ドラッグで移動するために pointerdown を横取りしているので、click イベントは使わずここで知らせる
+   */
+  onTap?(target: Element): void;
+}
+
+export function setupViewer(opts: ViewerOptions = {}): Viewer {
   const overlay = document.getElementById("viewer")!;
   const stage = document.getElementById("viewer-stage")!;
   const label = document.getElementById("viewer-zoom")!;
@@ -163,10 +171,12 @@ export function setupViewer(): Viewer {
   });
   const endDrag = (e: PointerEvent) => {
     if (!drag || drag.id !== e.pointerId) return;
-    const clickedOutside = !drag.moved && !content?.contains(document.elementFromPoint(e.clientX, e.clientY));
+    const tapped = drag.moved ? null : document.elementFromPoint(e.clientX, e.clientY);
     drag = null;
     stage.classList.remove("dragging");
-    if (e.type === "pointerup" && clickedOutside) close();
+    if (e.type !== "pointerup" || !tapped) return;
+    if (content?.contains(tapped)) opts.onTap?.(tapped);
+    else close();
   };
   stage.addEventListener("pointerup", endDrag);
   stage.addEventListener("pointercancel", endDrag);

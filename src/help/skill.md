@@ -19,7 +19,7 @@ description: "What renders in the Markdown Preview app (Tauri). Use when writing
 | Markdown 本体 | markdown-it 15（CommonMark） | 表・取り消し線・自動リンク・脚注 `[^1]`・タスクリスト `- [ ]` |
 | コード色分け | highlight.js 11 ＋ アプリ独自 | 対応言語は下記。`言語:ファイル名` でラベルにファイル名 |
 | ```` ```mermaid ```` | Mermaid 12（オフライン同梱） | securityLevel strict。ダーク時は dark テーマ |
-| ```` ```dot ```` / ```` ```graphviz ```` | @viz-js/viz 3（Graphviz WASM） | `layout=circo` などエンジン指定可 |
+| ```` ```dot ```` / ```` ```graphviz ```` | @viz-js/viz 3（Graphviz WASM） | `layout=circo` などエンジン指定可。ノードをクリックすると関連が光り、もう一度で `URL="#見出し"` のリンクへ（下の「書くときの注意」） |
 | ```` ```c4 ```` | アプリ独自（C4-PlantUML 風 → DOT） | 線が箱を避ける。書き方は下の「c4 の書き方」 |
 | ```` ```wavedrom ```` | WaveDrom 3 | 中身は **JSON5**（キーの引用符省略・末尾カンマ・コメント可） |
 | `$...$` / `$$...$$` / ```` ```math ```` | KaTeX 0.16（オプション機能「数式」） | GitHub と同じ書き方。下の「数式」 |
@@ -94,6 +94,7 @@ description: "What renders in the Markdown Preview app (Tauri). Use when writing
   比較表では判定を 1 語だけのセルに分けて書くと効く（「なし（対象外）」のような文は対象外）。オフの人にも読めるよう、色に頼った説明はしない
 - PDF 出力は A4・常に白地。色はライト背景で読めるものを選ぶ
 - 長いコード行・幅の広い表は PDF で折り返される
+- Graphviz で描く図（dot・c4・erd・flow・screen・markmap）は、プレビューでノードをクリックすると、つながる線と相手が光る。大きな図では「どことつながるか」をこれで見られるので、索引や説明への行き来を減らせる。dot のノードに `URL="#見出し"` を付けると、光らせたノードをもう一度クリックしたときにその見出しへ移る（拡大ビューアの中でも効く）
 
 ## 数式（オプション機能）
 
