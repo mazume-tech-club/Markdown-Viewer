@@ -6,6 +6,8 @@ import type { HLJSApi } from "highlight.js";
 import DOMPurify from "dompurify";
 import { commentSafe, parseAnnotation } from "./annotations";
 import { highlightCode } from "./highlight";
+import { mathSyntax } from "./mathsyntax";
+import { isOptionEnabled, OPTION_FEATURES, type OptionId } from "./options";
 
 /** 図として描画する fence の言語名 → 種別 */
 export const DIAGRAM_KINDS: Record<string, string> = {
@@ -15,6 +17,18 @@ export const DIAGRAM_KINDS: Record<string, string> = {
   c4: "c4",
   wavedrom: "wavedrom",
 };
+
+/** オプション機能で描けるようになる図: fence の言語名 → 種別と機能 */
+const OPTIONAL_KINDS = new Map(
+  OPTION_FEATURES.flatMap((f) => ("kinds" in f ? Object.entries(f.kinds).map(([lang, kind]) => [lang, { kind, feature: f }] as const) : [])),
+);
+
+let allOptions = false;
+/** 設定にかかわらず、オプションの図もすべて描く（ヘルプで例を見せるため） */
+export function enableAllOptions() {
+  allOptions = true;
+}
+const optionOn = (id: OptionId) => allOptions || isOptionEnabled(id);
 
 /** GitHub 風の見出しスラッグ（日本語はそのまま残す） */
 export function slugify(s: string): string {
@@ -46,7 +60,8 @@ const md = new MarkdownIt({
 })
   .use(anchor, { slugify })
   .use(footnote)
-  .use(taskLists, { label: true });
+  .use(taskLists, { label: true })
+  .use(mathSyntax, () => optionOn("math"));
 
 // スクロール同期用に、ブロック要素へソースの行番号を付ける
 md.core.ruler.push("source_line", (state) => {
@@ -197,15 +212,20 @@ md.renderer.rules.fence = (tokens, idx, options) => {
   const t = tokens[idx];
   const { lang, label } = parseFenceInfo(t.info);
   const line = t.map ? ` data-line="${t.map[0]}"` : "";
-  const kind = DIAGRAM_KINDS[lang];
+  const optional = OPTIONAL_KINDS.get(lang);
+  const kind = DIAGRAM_KINDS[lang] ?? (optional && optionOn(optional.feature.id) ? optional.kind : undefined);
   if (kind) {
     return `<div class="diagram" data-kind="${kind}"${line}><pre class="diagram-src">${esc(t.content)}</pre></div>\n`;
   }
   const body = options.highlight?.(t.content, lang, "") ?? esc(t.content);
   const cls = lang ? ` class="hljs language-${esc(lang)}"` : ` class="hljs"`;
-  if (!label) return `<pre${line}><code${cls}>${body}</code></pre>\n`;
+  // オプションがオフの図は、コードのまま出して、オンにすれば図になることを添える
+  const off = optional
+    ? `<p class="diagram-off">設定 → オプション機能 の「${esc(optional.feature.label)}」をオンにすると図になります</p>\n`
+    : "";
+  if (!label) return `<pre${line}><code${cls}>${body}</code></pre>\n${off}`;
   // ラベルごと編集位置の色付け・スクロール同期の対象にするため、data-line は外側に付ける
-  return `<div class="code-block"${line}><span class="code-label">${esc(label)}</span><pre><code${cls}>${body}</code></pre></div>\n`;
+  return `<div class="code-block"${line}><span class="code-label">${esc(label)}</span><pre><code${cls}>${body}</code></pre></div>\n${off}`;
 };
 
 /** Markdown を安全な HTML 文字列に変換する */

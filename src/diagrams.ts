@@ -3,10 +3,12 @@ import DOMPurify from "dompurify";
 // 図ライブラリは重いので、最初に必要になったときに読み込む
 type Mermaid = typeof import("mermaid").default;
 type Viz = Awaited<ReturnType<typeof import("@viz-js/viz").instance>>;
+type Katex = typeof import("katex").default;
 
 let mermaidP: Promise<Mermaid> | null = null;
 let mermaidTheme = "";
 let vizP: Promise<Viz> | null = null;
+let katexP: Promise<Katex> | null = null;
 let seq = 0;
 
 /** 種別・テーマ・ソースをキーにした描画済み SVG のキャッシュ */
@@ -61,11 +63,36 @@ const sanitizeSvg = (svg: string) =>
     ADD_ATTR: ["xlink:href"],
   });
 
+// KaTeX は SVG でなく HTML（と読み上げ用の MathML）を出す。文字の位置は style 属性で決めるので残す
+const sanitizeMath = (html: string) =>
+  purifier.sanitize(html, { USE_PROFILES: { html: true, mathMl: true, svg: true } });
+
+/** 数式を描画する。KaTeX と CSS（フォント）は初めて描くときに読み込む */
+async function renderMath(src: string, displayMode: boolean): Promise<string> {
+  katexP ??= Promise.all([import("katex"), import("katex/dist/katex.min.css")]).then(([m]) => m.default);
+  const katex = await katexP;
+  // 文中の数式は誤りがあっても段落を崩さないよう、KaTeX に赤字で出させる
+  return sanitizeMath(katex.renderToString(src, { displayMode, throwOnError: displayMode, output: "htmlAndMathml" }));
+}
+
 /** DOT を描画する。post で、サニタイズ前の SVG に手を加えられる */
 async function renderDot(src: string, post: (svg: string) => string = (svg) => svg): Promise<string> {
   vizP ??= import("@viz-js/viz").then((m) => m.instance());
   const viz = await vizP;
   return sanitizeSvg(post(viz.renderSVGElement(src).outerHTML));
+}
+
+/**
+ * アプリが組み立てた DOT を描画する。Graphviz は構文の誤りがあっても一部を描いて成功とするので、
+ * 誤りがあれば描かずに知らせる（変換の不具合で図の一部が黙って消えないように）
+ */
+async function renderGeneratedDot(src: string): Promise<string> {
+  vizP ??= import("@viz-js/viz").then((m) => m.instance());
+  const viz = await vizP;
+  const r = viz.render(src, { format: "svg" });
+  const err = r.errors.find((e) => e.level === "error");
+  if (r.status !== "success" || err) throw new Error(err?.message ?? "Graphviz で描けませんでした");
+  return sanitizeSvg(r.output.slice(r.output.indexOf("<svg")));
 }
 
 async function renderOne(kind: string, src: string, dark: boolean): Promise<string> {
@@ -94,6 +121,14 @@ async function renderOne(kind: string, src: string, dark: boolean): Promise<stri
       const model = parseC4(src, true);
       return renderDot(modelToDot(model), (svg) => drawBoundaries(drawPersonIcons(svg), model));
     }
+    case "erd": {
+      const { parseErd, erdToDot } = await import("./erd");
+      return renderGeneratedDot(erdToDot(parseErd(src)));
+    }
+    case "math":
+      return renderMath(src, true);
+    case "math-inline":
+      return renderMath(src, false);
     case "wavedrom": {
       const [wd, { default: JSON5 }] = await Promise.all([import("wavedrom"), import("json5")]);
       const jsonml = wd.renderAny(++seq, JSON5.parse(src), wd.waveSkin);

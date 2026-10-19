@@ -38,7 +38,7 @@ import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } 
 import { MENU_KEYS, setupMenuBar, type Mode } from "./menubar";
 import { findSourcePos, type SourcePos } from "./sourcepos";
 import { setupSelectCopy } from "./selectcopy";
-import { isOptionEnabled, OPTION_FEATURES, setOptionEnabled, type OptionId } from "./options";
+import { isOptionEnabled, OPTION_FEATURES, OPTION_GROUPS, setOptionEnabled, type OptionId } from "./options";
 import { markJudgeCells } from "./judge";
 import { applyPdfLayout, loadPdfLayout, PDF_SCALES, savePdfLayout } from "./pdflayout";
 import { getTermPosition, setupTerminal } from "./terminal";
@@ -1429,7 +1429,14 @@ const keepDraft = $<HTMLInputElement>("keep-draft");
 const setFiles = $<HTMLInputElement>("set-files");
 const setRecentCount = $<HTMLInputElement>("set-recent-count");
 
-// オプション機能は options.ts の一覧から 1 行ずつ作る。切り替えたら描画し直す
+// オプション機能は options.ts の一覧から 1 行ずつ作る（「図」「その他」の見出しごと）。切り替えたら描画し直す
+for (const [group, title] of Object.entries(OPTION_GROUPS)) {
+  const h = document.createElement("h4");
+  h.className = "settings-group";
+  h.textContent = title;
+  h.dataset.group = group;
+  $("option-features").append(h);
+}
 const optionInputs = OPTION_FEATURES.map((f) => {
   const row = document.createElement("label");
   row.className = "settings-row";
@@ -1442,7 +1449,9 @@ const optionInputs = OPTION_FEATURES.map((f) => {
     void render();
   });
   row.append(input, ` ${f.label}`);
-  $("option-features").append(row);
+  // 見出しの後ろ（次の見出しの前）に足していく
+  const next = $("option-features").querySelector(`h4[data-group="${f.group}"] ~ h4`);
+  $("option-features").insertBefore(row, next);
   return input;
 });
 
@@ -1642,6 +1651,17 @@ void listen<string>("insert-snippet", async (e) => {
   if (state.updating) return;
   if (state.mode === "preview") setMode("split");
   editor.insert(e.payload);
+  await appWindow.setFocus();
+});
+
+// ヘルプの「新しいタブで開く」（SKILL.md など、保存して使う文書）。保存していない変更として開く
+void listen<string>("open-snippet", async (e) => {
+  if (state.updating) return;
+  const tab = makeTab(null, "");
+  tab.doc = editor.createState(e.payload);
+  tab.dirty = true;
+  addTab(tab);
+  if (state.mode === "preview") setMode("split");
   await appWindow.setFocus();
 });
 

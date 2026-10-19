@@ -112,6 +112,19 @@ body.help {
   line-height: 1.5;
 }
 .pair .src .hljs { background: transparent; padding: 0; }
+/* SKILL.md のような長い文書は、描画結果を並べずソースだけを全幅で、高さを抑えて出す */
+.card > .src.raw {
+  margin: 10px 12px 12px;
+  padding: 10px 12px;
+  max-height: 480px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+  overflow: auto;
+  font-family: "Cascadia Code", Consolas, "BIZ UDGothic", monospace;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.card > .src.raw .hljs { background: transparent; padding: 0; }
 .pair .result {
   min-width: 0;
   padding: 4px 8px;

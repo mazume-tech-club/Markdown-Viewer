@@ -122,7 +122,7 @@
 :root[data-doc-style="memo"] .markdown-body hr { background: var(--memo-line); height: 1px; }
 
 /* 図と画像は白い面に載せる */
-:root[data-doc-style="memo"] .markdown-body .diagram.done {
+:root[data-doc-style="memo"] .markdown-body .diagram.done:not([data-kind^="math"]) {
   background: var(--memo-surface);
   border: 1px solid var(--memo-line);
   border-radius: 6px;

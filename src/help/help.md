@@ -419,6 +419,118 @@ quadrantChart
 ```
 ~~~~
 
+## アーキテクチャ図
+`group` で囲み、`service` で部品を置く。アイコンは `cloud` `database` `disk` `internet` `server`。線は `部品:辺 -- 辺:部品`（辺は `L` `R` `T` `B`）。
+~~~~example
+```mermaid
+architecture-beta
+  group api(cloud)[社内システム]
+  service web(internet)[Web] in api
+  service server(server)[API] in api
+  service db(database)[DB] in api
+  service disk(disk)[ファイル] in api
+  web:R -- L:server
+  server:R -- L:db
+  server:B -- T:disk
+```
+~~~~
+
+## ブロック図
+`columns` で 1 行に並べる数を決め、箱を左から順に置く。
+~~~~example
+```mermaid
+block-beta
+  columns 3
+  front["画面"] api["API"] db[("DB")]
+  front --> api
+  api --> db
+```
+~~~~
+
+## 棒グラフ・折れ線グラフ
+`bar` が棒、`line` が折れ線。両方書くと重ねて出る。日本語のラベルは `"4月"` のように引用符で囲む。
+~~~~example
+```mermaid
+xychart-beta
+  title "月別の問い合わせ件数"
+  x-axis ["4月", "5月", "6月", "7月", "8月", "9月"]
+  y-axis "件数" 0 --> 120
+  bar [52, 64, 80, 71, 95, 110]
+  line [52, 64, 80, 71, 95, 110]
+```
+~~~~
+
+## パケット図
+`開始ビット-終了ビット: "名前"` を並べる。通信の電文やレコードの配置に使う。
+~~~~example
+```mermaid
+packet-beta
+  0-15: "送信元ポート"
+  16-31: "宛先ポート"
+  32-63: "シーケンス番号"
+  64-95: "確認応答番号"
+```
+~~~~
+
+## カンバン
+列を書き、その下に字下げしてカードを書く。
+~~~~example
+```mermaid
+kanban
+  todo[未着手]
+    t1[テーブル定義を書く]
+  doing[作業中]
+    t2[ER 図を描く]
+  done[完了]
+    t3[要件の確認]
+```
+~~~~
+
+## レーダーチャート
+`axis` で軸、`curve` で系列を書く。案の比較に使う。
+~~~~example
+```mermaid
+radar-beta
+  title 案の比較
+  axis perf["性能"], ease["使いやすさ"], cost["費用"], ops["保守"]
+  curve a["案A"]{4, 3, 2, 5}
+  curve b["案B"]{2, 5, 4, 3}
+  max 5
+```
+~~~~
+
+## ツリーマップ
+字下げで親子を書き、葉に値を付ける。面積が値に比例する。
+~~~~example
+```mermaid
+treemap-beta
+"工数"
+    "開発"
+        "画面": 30
+        "API": 25
+    "テスト": 20
+    "運用": 15
+```
+~~~~
+
+## 要件図
+`requirement` で要件、`element` で部品を書き、`satisfies` などでつなぐ。名前は英数字で書く。
+~~~~example
+```mermaid
+requirementDiagram
+  requirement response {
+    id: 1
+    text: 3 秒以内に応答する
+    risk: medium
+    verifymethod: test
+  }
+  element api {
+    type: service
+  }
+  api - satisfies -> response
+```
+~~~~
+
 # C4 モデル（Mermaid） {#c4}
 
 ## 使用技術・書き方の調べ方
@@ -768,6 +880,107 @@ Rel_R(a, b, "連携")
   { bits: 5, name: "rs1" },
   { bits: 12, name: "imm" }
 ]}
+```
+~~~~
+
+# 数式（KaTeX） {#math}
+
+## 使用技術・書き方の調べ方
+**ツール → 設定… → オプション機能** の「数式（KaTeX）」をオンにすると使える（オフのあいだは書いたままの文字やコードとして出る）。[KaTeX](https://katex.org/) 0.16 で描画している（アプリに同梱。オフラインで動く）。書き方は GitHub と同じ。
+- 使える命令: [KaTeX の対応一覧](https://katex.org/docs/supported.html)
+- LaTeX の数式の書き方全般: [Wikibooks: LaTeX/Mathematics](https://en.wikibooks.org/wiki/LaTeX/Mathematics)
+
+## 文中の数式
+`$` で挟む。開く `$` の直後と閉じる `$` の直前に空白を入れない。「$100 と $200」のような金額は数式にならない。`$` そのものを書きたいときは `\$`。
+~~~~example
+円の面積は $S = \pi r^2$、二次方程式の解は $x = \frac{-b \pm \sqrt{b^2 - 4ac}}{2a}$ です。
+~~~~
+
+## 数式のブロック
+`$$` で挟むか、```` ```math ```` で囲む。中央に大きく出る。
+~~~~example
+$$
+\sum_{k=1}^{n} k = \frac{n(n+1)}{2}
+$$
+
+```math
+\begin{aligned}
+\text{粗利} &= \text{売上} - \text{原価} \\
+\text{粗利率} &= \frac{\text{粗利}}{\text{売上}} \times 100
+\end{aligned}
+```
+~~~~
+
+## 行列・場合分け
+~~~~example
+$$
+A = \begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}, \quad
+f(x) = \begin{cases} x & (x \ge 0) \\ -x & (x < 0) \end{cases}
+$$
+~~~~
+
+# ER 図（erd） {#erd}
+
+## 使用技術・書き方の調べ方
+**ツール → 設定… → オプション機能** の「ER 図（テーブル定義の表から）」をオンにすると使える。このアプリ独自の書き方で、```` ```erd ```` の中に書いたテーブル定義の表を [Graphviz](https://graphviz.org/) で ER 図にする。オフのあいだは表のソースのまま出るので、設計書のテーブル定義をそのまま図にできる。
+
+## 基本の書き方
+`## 物理名 論理名` でテーブルを始め、その下に列の表を書く。表の見出しで役割を決める（順番は自由）。
+- **列**（列名・カラム・項目・物理名・name）: 列の名前。見つからなければ 1 列目
+- **型**（データ型・type）、**キー**（制約・key）、**説明**（備考・論理名・note）: 無くてもよい
+- キーに `PK` を書くと太字と下線、`FK 表.列` を書くと斜体になり、参照先の列へ線を引く（`FK 表` だけなら参照先の PK）。`UK` は一意
+- 線は参照される側（1）が縦棒、参照する側（多）がカラスの足
+~~~~example
+```erd
+## customers 顧客
+| 列 | 型 | キー | 説明 |
+|---|---|---|---|
+| id | int | PK | |
+| name | varchar(100) | | 氏名 |
+| email | varchar(255) | UK | |
+
+## orders 注文
+| 列 | 型 | キー | 説明 |
+|---|---|---|---|
+| id | int | PK | |
+| customer_id | int | FK customers.id | 注文者 |
+| ordered_at | datetime | | 注文日時 |
+
+## order_items 注文明細
+| 列 | 型 | キー | 説明 |
+|---|---|---|---|
+| order_id | int | PK, FK orders.id | |
+| line_no | int | PK | 行番号 |
+| product_id | int | FK products.id | |
+| quantity | int | | 数量 |
+
+## products 商品
+| 列 | 型 | キー | 説明 |
+|---|---|---|---|
+| id | int | PK | |
+| name | varchar(100) | | 商品名 |
+| price | int | | 単価 |
+```
+~~~~
+
+## タイトル・コメント
+`title` で図の上に題名を出す。`%%` で始まる行はコメント。書き方を間違えると「N 行目: …」と場所を知らせる。
+~~~~example
+```erd
+title 部署と社員
+%% 自己参照（上司）も書ける
+## depts 部署
+| 列 | キー |
+|---|---|
+| id | PK |
+| name | |
+
+## employees 社員
+| 列 | キー |
+|---|---|
+| id | PK |
+| dept_id | FK depts.id |
+| boss_id | FK employees.id |
 ```
 ~~~~
 

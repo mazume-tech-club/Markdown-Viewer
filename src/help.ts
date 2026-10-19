@@ -10,7 +10,8 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 
 import helpSource from "./help/help.md?raw";
 import releasesSource from "./help/releases.md?raw";
-import { highlighterReady, onHighlighterLoaded, renderMarkdown } from "./render";
+import skillSource from "./help/skill.md?raw";
+import { enableAllOptions, highlighterReady, onHighlighterLoaded, renderMarkdown } from "./render";
 import { renderDiagrams } from "./diagrams";
 import { markJudgeCells } from "./judge";
 
@@ -19,6 +20,8 @@ interface Item {
   title: string;
   note: string;
   code: string;
+  /** 例を描画せず、ソースだけを全幅で出す（SKILL.md のように長い文書） */
+  raw?: boolean;
 }
 interface Section {
   id: string;
@@ -65,8 +68,34 @@ function parse(src: string): Section[] {
   return sections;
 }
 
+// Claude Code のスキル（help/skill.md）。そのまま保存して使えるよう、描画せずソースで出す
+const skillSection: Section = {
+  id: "skill",
+  title: "Claude に教える（スキル）",
+  items: [
+    {
+      id: "skill-1",
+      title: "スキルを入れる",
+      note: [
+        "Claude Code に、このアプリで描ける書き方（図の記法・使えない記法など）を教えるファイル。入れておくと、Claude が md を書くときに描画されない記法を避け、図に合った書き方を選ぶ。",
+        "",
+        "1. 下の「SKILL.md」の **新しいタブで開く** を押す（**コピー** してほかのエディタに貼ってもよい）",
+        "2. `C:\\Users\\<ユーザー名>\\.claude\\skills\\markdown-preview\\SKILL.md` という名前で保存する（フォルダが無ければ作る）。1 つのプロジェクトだけで使うなら、そのプロジェクトの `.claude\\skills\\markdown-preview\\SKILL.md`",
+        "3. Claude Code を起動し直すと読み込まれる。md を書く依頼をすると自動で使われる（`/markdown-preview` で明示的にも呼べる）",
+        "",
+        "アプリを更新して書ける図が増えたら、ここから入れ直す。",
+      ].join("\n"),
+      code: "",
+    },
+    { id: "skill-2", title: "SKILL.md", note: "", code: skillSource.replace(/\r\n/g, "\n").trimEnd(), raw: true },
+  ],
+};
+
+// オプション機能の図（数式・ER 図など）も、設定にかかわらず例を描いて見せる
+enableAllOptions();
+
 // リリースノートは書き方の例と同じ形で書き、ヘルプの最後の節として出す
-const sections = parse(`${helpSource}\n${releasesSource}`);
+const sections = [...parse(helpSource), skillSection, ...parse(releasesSource)];
 const content = document.getElementById("content")!;
 const toc = document.getElementById("toc")!;
 const search = document.getElementById("search") as HTMLInputElement;
@@ -99,14 +128,20 @@ function build() {
                   i.code
                     ? `<div class="actions">
                   <button data-act="copy" data-id="${i.id}" title="例をクリップボードにコピー">コピー</button>
-                  <button data-act="insert" data-id="${i.id}" title="メインウィンドウのカーソル位置に挿入">エディタに挿入</button>
+                  ${
+                    i.raw
+                      ? `<button data-act="open" data-id="${i.id}" title="メインウィンドウの新しいタブに開く（Ctrl+S で保存先を選ぶ）">新しいタブで開く</button>`
+                      : `<button data-act="insert" data-id="${i.id}" title="メインウィンドウのカーソル位置に挿入">エディタに挿入</button>`
+                  }
                 </div>`
                     : ""
                 }
               </header>
               ${i.note ? `<div class="note markdown-body">${renderMarkdown(i.note)}</div>` : ""}
               ${
-                i.code
+                i.raw
+                  ? `<pre class="src raw"><code class="hljs">${hljs.highlight(i.code, { language: "markdown" }).value}</code></pre>`
+                  : i.code
                   ? `<div class="pair">
                 <pre class="src"><code class="hljs">${hljs.highlight(i.code, { language: "markdown" }).value}</code></pre>
                 <div class="result markdown-body">${renderMarkdown(i.code)}</div>
@@ -170,6 +205,9 @@ document.addEventListener("click", async (e) => {
     if (btn.dataset.act === "copy") {
       await navigator.clipboard.writeText(item.code);
       flash(btn, "コピーしました");
+    } else if (btn.dataset.act === "open") {
+      await emitTo("main", "open-snippet", item.code);
+      flash(btn, "開きました");
     } else {
       await emitTo("main", "insert-snippet", item.code);
       flash(btn, "挿入しました");

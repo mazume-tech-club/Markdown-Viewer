@@ -1,0 +1,172 @@
+---
+name: markdown-preview
+description: "What renders in the Markdown Preview app (Tauri). Use when writing or editing a .md file the user will view in that app — design docs, reports, specs, diagrams — or when choosing how to draw a diagram (Mermaid / Graphviz / C4 / WaveDrom / ER diagram) or math in Markdown."
+---
+
+# Markdown Preview で表示できる書き方
+
+ユーザーは Markdown Preview アプリで .md を読み、PDF にもする。
+ここに無い記法（PlantUML など）は**描画されない**ので使わない。
+書き方の例はアプリのヘルプ（F1）にある。
+
+数式・ER 図は**オプション機能**（設定でオンにした人だけ描ける）。オフの人にはコードブロックや `$` の付いた文字のまま見える。
+ユーザーが使っていると分かっているときに使う。分からなければ使う前に聞く。
+
+## 対応一覧
+
+| 書き方 | エンジン | 備考 |
+|---|---|---|
+| Markdown 本体 | markdown-it 15（CommonMark） | 表・取り消し線・自動リンク・脚注 `[^1]`・タスクリスト `- [ ]` |
+| コード色分け | highlight.js 11 ＋ アプリ独自 | 対応言語は下記。`言語:ファイル名` でラベルにファイル名 |
+| ```` ```mermaid ```` | Mermaid 12（オフライン同梱） | securityLevel strict。ダーク時は dark テーマ |
+| ```` ```dot ```` / ```` ```graphviz ```` | @viz-js/viz 3（Graphviz WASM） | `layout=circo` などエンジン指定可 |
+| ```` ```c4 ```` | アプリ独自（C4-PlantUML 風 → DOT） | 線が箱を避ける。書き方は下の「c4 の書き方」 |
+| ```` ```wavedrom ```` | WaveDrom 3 | 中身は **JSON5**（キーの引用符省略・末尾カンマ・コメント可） |
+| `$...$` / `$$...$$` / ```` ```math ```` | KaTeX 0.16（オプション機能「数式」） | GitHub と同じ書き方。下の「数式」 |
+| ```` ```erd ```` | アプリ独自（表 → DOT。オプション機能「ER 図」） | テーブル定義の表から ER 図。下の「erd の書き方」 |
+| HTML | DOMPurify で無害化 | `<details>` `<summary>` `<br>` `<img width>` `<kbd>` など可 |
+
+## 色分けできる言語
+
+| 言語名 | 色分け | 備考 |
+|---|---|---|
+| `powershell` `ps1` `pwsh` | アプリ独自 | 文の先頭の語をコマンド（`docker` も `Get-ChildItem` も）、後ろの `-x` を引数として色付け |
+| `bash` `sh` `shell` `zsh` | アプリ独自 | 同上。ヒアドキュメントは文字列 |
+| `console` `terminal` | アプリ独自 | `$ ` `# ` `PS C:\>` `user@host:~$ ` で始まる行だけ色付け。出力の行はそのまま |
+| `env` `dotenv` | アプリ独自 | `KEY=value`、`export`、`#` コメント |
+| `dockerfile` `cmd` `bat` | highlight.js（使うときに読み込み） | |
+| `vue` / `blade` | HTML / php-template として | |
+| `c` `cpp` `cs` `css` `diff` `go` `graphql` `ini` `toml` `java` `js` `ts` `tsx` `json` `kotlin` `less` `lua` `makefile` `markdown` `objectivec` `perl` `php` `python` `py` `r` `ruby` `rust` `scss` `sql` `swift` `vb` `vbnet` `wasm` `html` `xml` `yaml` `plaintext` | highlight.js common | |
+
+- コマンドの実行例は、実行するシェルの言語名で書く（PowerShell で打つなら `powershell`、bash なら `bash`）。
+  プロンプトと出力を一緒に見せるときは `console`
+- `nginx` `vba` などは色が付かない（ラベルは出る。エラーにはならない）
+- フォルダ構成は言語名なしのコードブロックに `├──` `└──` `│` で書く
+
+## 使えないもの（書かない）
+
+| 記法 | 理由 / 代わり |
+|---|---|
+| MathJax だけの命令（`\require` など） | KaTeX にない命令は赤字のエラーになる |
+| Mermaid の `sankey-beta` | 日本語の名前を読めない（ASCII のみ） |
+| PlantUML ```` ```plantuml ```` | 未対応。C4 なら ```` ```c4 ````、他は Mermaid |
+| `<style>` `<script>` `on*=` 属性 | 除去される |
+| Mermaid の `click` コールバック・ラベル内 HTML | strict モードで無効 |
+| GitHub の `> [!NOTE]` アラート | 普通の引用として出るだけ |
+| 見出しの `{#id}` 属性 | 未対応。リンクは自動スラッグを使う |
+| 絵文字ショートコード `:smile:` | 未対応。絵文字を直接書く |
+
+## リンクと画像
+
+- 見出しアンカーは GitHub 風: 小文字化・空白→`-`・記号除去・**日本語はそのまま**。`[x](#見出し1)`
+- 相対パスの `.md` リンクはアプリ内のタブで開く
+- 画像の相対パスは md ファイル基準。貼り付けた画像は「md の名前.assets」フォルダに入る。サイズ指定は `<img src="a.png" width="400">`
+- 画像の直後の `<!-- annotate {...} -->` はアプリの画像注釈データ。**手で書き換えない・消さない**
+
+## 図を選ぶ目安
+
+| 描きたいもの | 使う記法 |
+|---|---|
+| フロー・シーケンス・クラス・状態・ER・ガント・円グラフ・マインドマップ・タイムライン・gitGraph・journey・quadrantChart | Mermaid |
+| アーキテクチャ図（`architecture-beta`）・ブロック図（`block-beta`）・棒/折れ線グラフ（`xychart-beta`）・パケット図（`packet-beta`）・カンバン（`kanban`）・レーダー（`radar-beta`）・ツリーマップ（`treemap-beta`）・要件図（`requirementDiagram`） | Mermaid。xychart の日本語ラベルは `"4月"` と引用符で囲む |
+| テーブル定義から ER 図（列・型・PK/FK を全部見せたい） | ```` ```erd ````（オプション。下の「erd の書き方」） |
+| 数式 | `$...$` / `$$...$$`（オプション） |
+| ノードが多い依存関係、細かい見た目指定、record 型の表ノード | Graphviz (`dot`) |
+| C4（システム構成）で線を箱に重ねたくない／配置を指定したい | ```` ```c4 ````（推奨） |
+| 処理の流れを番号付きで見せる説明図（座標まで決めたい・一度きり） | 手書き SVG ファイル（下の「手書き SVG」） |
+| C4 をとりあえず | Mermaid の `C4Context` 等（配置指定不可・線が重なりやすい） |
+| タイミングチャート・レジスタのビット図 | WaveDrom |
+
+## 書くときの注意
+
+- 図の構文エラーは「〇〇 の描画に失敗しました: …」とソース付きで出る。書いたら構文を見直す
+- Mermaid / DOT のラベルに日本語はそのまま書ける。DOT は `node [fontname="sans-serif"]` が無難
+- 文書スタイル（**表示 → 文書スタイル**）は「GitHub」と「設計メモ」がある。どちらでも読めるよう、md 側で見た目に頼らない
+- **表の判定の色付け**（オプション機能。設定でオンにした人だけ）: セルの中身が `○` `あり` `OK` / `△` `一部` / `✕` `なし` `NG` などだけなら色付きの太字になる。
+  比較表では判定を 1 語だけのセルに分けて書くと効く（「なし（対象外）」のような文は対象外）。オフの人にも読めるよう、色に頼った説明はしない
+- PDF 出力は A4・常に白地。色はライト背景で読めるものを選ぶ
+- 長いコード行・幅の広い表は PDF で折り返される
+
+## 数式（オプション機能）
+
+- 文中は `$...$`。開く `$` の直後と閉じる `$` の直前に空白を入れない。`$100 と $200` のような金額は数式にならない。`$` そのものは `\$`
+- ブロックは `$$` で挟む（1 行でも複数行でもよい）か ```` ```math ````
+- 命令は KaTeX の対応一覧の範囲で書く（`\begin{aligned}` `\frac` `\sum` `\text{日本語}` `pmatrix` `cases` など）
+
+## erd の書き方（オプション機能）
+
+```erd
+title 受注
+## customers 顧客
+| 列 | 型 | キー | 説明 |
+|---|---|---|---|
+| id | int | PK | |
+| name | varchar(100) | | 氏名 |
+
+## orders 注文
+| 列 | 型 | キー | 説明 |
+|---|---|---|---|
+| id | int | PK | |
+| customer_id | int | FK customers.id | 注文者 |
+```
+
+- `## 物理名 論理名` でテーブルを始め、すぐ下に列の表を書く（見出し行と `|---|` の区切り行が要る）
+- 表の見出しで役割を決める。列名: `列` `列名` `カラム` `項目` `物理名` `name`（無ければ 1 列目）、型: `型` `データ型` `type`、キー: `キー` `制約` `key`、説明: `説明` `備考` `論理名` `note`
+- キーは `PK`、`FK 表.列`（`FK 表` だけなら参照先の PK）、`UK`。複合は `PK, FK orders.id`。FK から参照先へ線が引かれる
+- `title ...` で題名、`%%` で始まる行はコメント。ほかの行（説明の文など）を書くと「N 行目: 未対応の書き方です」で失敗する
+- 参照先のテーブル・列が無いと失敗する。図に出すテーブルは同じブロックにすべて書く
+
+## c4 の書き方（アプリ独自の C4 方言）
+
+C4-PlantUML / Mermaid C4 と同じマクロを 1 行 1 文で書く。アプリが DOT に変換して Graphviz で描く。
+**一覧に無いマクロは「N 行目: 未対応の書き方です」で描画失敗**する。
+
+| 種類 | 書き方 |
+|---|---|
+| 要素（技術なし） | `Person` `Person_Ext` `System` `System_Ext` `SystemDb` `SystemDb_Ext` — `(id, "名前", "説明")` |
+| 要素（技術あり） | `Container` `ContainerDb` `Component` `ComponentDb`（各 `_Ext` も）— `(id, "名前", "技術", "説明")` |
+| 囲み | `Boundary` `System_Boundary` `Container_Boundary` `Enterprise_Boundary` — `(id, "名前") {` … `}`（入れ子可、`{` は同じ行末） |
+| 関係 | `Rel` `Rel_D` `Rel_U` `Rel_R` `Rel_L` `BiRel`（`BiRel_R` 等も）— `(元, 先, "説明", "技術")` |
+| 配置だけ | `Lay_D` `Lay_U` `Lay_R` `Lay_L` — `(a, b)` |
+| 全体 | `title ...` / `LAYOUT_TOP_DOWN()` / `LAYOUT_LEFT_RIGHT()` / `dot: <DOT の文>` |
+| 色 | `UpdateElementStyle(id, $bgColor="#d1242f", $borderColor="#82071e")` |
+| 自由配置 | `Pos(id, x, y)` — 1 つでも書くと座標固定モード（図のビルダーが書く。手書きしない） |
+| コメント | 行頭 `'` または `%%` |
+| 無視される | `@startuml` `@enduml` `!include ...` `C4Context` 等のヘッダ、`UpdateRelStyle` `UpdateLayoutConfig` |
+
+- id は重複不可。`Rel` の元・先に囲みの id を書くと線は枠で止まる
+- 文字列内の `\n` で改行。説明は長いと自動で折り返す
+- `$techn=` `$descr=` `$label=` の名前付き引数も使える
+- `Rel_R(a, b)` は b を a の右に置く（`_L` 左・`_U` 上・`_D` 下）。矢印の向きは元→先のまま
+- 同じ要素から「囲みの中の DB」と「外部システム」へ線が出て交差するときは、DB 側を `Rel_U`、外部側を `Rel` にして段を分ける
+- 共通の DB に複数から線が集まるなら、全部 `Rel_U`（または `Rel_D`）にそろえる
+- 詰まって見えたら `dot: nodesep=1.0` / `dot: ranksep=1.0`
+- 直角の線は `dot: splines=ortho`（ラベルがずれやすい。ラベルが多いなら `dot: splines=polyline`）
+- Mermaid の C4 ソースは ```` ```mermaid ```` を ```` ```c4 ```` に変えるだけで描ける
+
+```c4
+title 受注システムのコンテナ
+Person(customer, "顧客")
+System_Boundary(b, "受注システム") {
+  Container(web, "Web アプリ", "TypeScript", "画面を提供")
+  Container(api, "API", "Rust", "業務ロジック")
+  ContainerDb(db, "DB", "PostgreSQL", "注文データ")
+}
+System_Ext(pay, "決済サービス")
+Rel(customer, web, "使う", "HTTPS")
+Rel_R(web, api, "呼び出す", "JSON")
+Rel_U(api, db, "読み書き", "SQL")
+Rel(api, pay, "決済を依頼", "HTTPS")
+```
+
+## 手書き SVG の説明図
+
+Mermaid / Graphviz では出せない「座標まで決めた説明図」は、.svg ファイルを md の隣に置き、`![構成図](flow.svg)` で埋め込む。拡大ビューア・PDF もそのまま効く。
+
+- **ライト配色だけで描き、白い地の `<rect>` を一番下に敷く。** `prefers-color-scheme` は書かない（PDF に暗い図が出るおそれがある）
+- 色・線は SVG 内の `<style>` にクラスで定義する（`<img>` で読む SVG なら `<style>` は消されない）
+- 書体は `font-family: "BIZ UDPGothic", "Yu Gothic UI", sans-serif`、コード名は `Consolas, monospace`。Web フォントは指定しない
+- `viewBox` を付け、`width` / `height` は付けない（プレビュー幅に合わせて縮む）。横幅は 1000 前後
+- md の本文に `<svg>` を直接書かない（空行で HTML ブロックが切れる・`<style>` が消される）
+- 配色の目安（設計メモの文書スタイルと同じ）: 地 `#f4f6f7`、面 `#ffffff`、文字 `#1c2328`、補助 `#5d6974`、罫線 `#c3cbd2`、アクセント `#0a6c78`、アクセント淡 `#dceff1`、注意 `#a8402c`
+- 実線のアクセント色 = 今回の処理、点線の補助色 = 既存の処理。処理の順に ① ② ③ を振り、本文の手順も同じ番号で書く

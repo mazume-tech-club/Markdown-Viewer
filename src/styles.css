@@ -417,11 +417,17 @@ button:hover { background: var(--btn-hover); }
   text-align: center;
 }
 .diagram:not(.done):not(.failed) .diagram-src { opacity: 0.4; }
-.diagram.done svg { max-width: 100%; height: auto; }
-/* クリックで拡大ビューアを開けることを示す。リンクの付いたものはリンクを優先する */
-.diagram.done svg, .markdown-body img { cursor: zoom-in; }
+.diagram.done:not([data-kind^="math"]) svg { max-width: 100%; height: auto; }
+/* クリックで拡大ビューアを開けることを示す。リンクの付いたものはリンクを優先する（数式は拡大しない） */
+.diagram.done:not([data-kind^="math"]) svg, .markdown-body img { cursor: zoom-in; }
 .diagram.done svg a, .markdown-body a img { cursor: pointer; }
 .diagram-src { text-align: left; }
+/* 数式（KaTeX）。文中の数式は文字と同じ行に置く */
+.diagram[data-kind="math"] { overflow-y: hidden; }
+.diagram.math-inline { display: inline; margin: 0; overflow: visible; text-align: inherit; }
+.diagram.math-inline.failed { display: block; }
+/* オプションがオフの図の案内（コードブロックの下） */
+.diagram-off { margin: -8px 0 16px; font-size: 12px; color: var(--muted); }
 .diagram-error {
   color: var(--error);
   border: 1px solid var(--error);
@@ -435,6 +441,7 @@ button:hover { background: var(--btn-hover); }
 @media screen and (prefers-color-scheme: dark) {
   .diagram.done[data-kind="graphviz"],
   .diagram.done[data-kind="c4"],
+  .diagram.done[data-kind="erd"],
   .diagram.done[data-kind="wavedrom"] {
     background: #fff;
     border-radius: 6px;
@@ -584,6 +591,7 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .settings-section + .settings-section { border-top: 1px solid var(--border); }
 .settings-section h3 { margin: 4px 0 6px; font-size: 12px; color: var(--muted); }
 .settings-row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+.settings-group { margin: 8px 0 2px; font-size: 12px; font-weight: 600; }
 .settings-row .grow { flex: 1; }
 .settings .version { color: var(--muted); }
 .settings button { border-color: var(--border); }

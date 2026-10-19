@@ -32,7 +32,7 @@ export function zoomAt(view: View, factor: number, px: number, py: number): View
 /** 拡大して見られる要素（図の SVG・注釈付きの画像・画像）。見られないものなら null */
 export function viewableAt(target: EventTarget | null): HTMLElement | SVGSVGElement | null {
   if (!(target instanceof Element)) return null;
-  const diagram = target.closest(".diagram.done");
+  const diagram = target.closest('.diagram.done:not([data-kind^="math"])');
   if (diagram) return diagram.querySelector("svg");
   const img = target.closest("img");
   if (!img) return null;
