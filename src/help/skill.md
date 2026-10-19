@@ -1,6 +1,6 @@
 ---
 name: markdown-preview
-description: "What renders in the Markdown Preview app (Tauri). Use when writing or editing a .md file the user will view in that app — design docs, reports, specs, diagrams — or when choosing how to draw a diagram (Mermaid / Graphviz / C4 / WaveDrom / ER diagram) or math in Markdown."
+description: "What renders in the Markdown Preview app (Tauri). Use when writing or editing a .md file the user will view in that app — design docs, reports, specs, diagrams — or when choosing how to draw a diagram (Mermaid / Graphviz / C4 / WaveDrom / ER diagram / mind map / business flow / screen transition / ASCII art) or math in Markdown."
 ---
 
 # Markdown Preview で表示できる書き方
