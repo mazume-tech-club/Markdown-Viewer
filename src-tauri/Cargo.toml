@@ -1,6 +1,6 @@
 [package]
 name = "markdown-preview"
-version = "1.18.0"
+version = "1.19.0"
 description = "Markdown Preview"
 authors = ["tsuchi-jun"]
 edition = "2024"
