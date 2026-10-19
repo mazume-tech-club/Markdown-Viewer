@@ -335,6 +335,49 @@ describe("画像の受け渡し", () => {
     expect(third.images.get("議事録.assets/c.png")?.bytes.byteLength).toBe(200);
   });
 
+  it("参加者が求めたホストのディスクの画像は、求めた人にだけ届く", async () => {
+    const { relay, host, guest } = await setup();
+    const asked: { peer: number; path: string }[] = [];
+    host["handlers"].imageRequest = (r) => {
+      asked.push(r);
+      host.sendImageTo(r.peer, { path: r.path, bytes: bytesOf(300) });
+    };
+    // 3 人目にも入ってもらい、返事がそちらへ行かないことを確かめる
+    const requests: number[] = [];
+    host["handlers"].joinRequest = (r) => requests.push(r.peer);
+    const otherGot: string[] = [];
+    const third = await CollabSession.join(relay.connect(), { name: "鈴木", invite: host.invite }, {
+      image: (r) => otherGot.push(r.path),
+    });
+    await until(() => requests.length === 1);
+    await host.approve(requests[0]);
+    await until(() => third.status === "live", "3 人目が入る");
+
+    const got: { path: string; size: number; requested: boolean }[] = [];
+    guest["handlers"].image = (r, meta) => got.push({ path: r.path, size: r.bytes.byteLength, requested: meta.requested });
+    guest.requestImage("img/a.png");
+    guest.requestImage("img/a.png"); // 同じ画像は 1 回だけ求める
+    await until(() => got.length === 1, "画像が届く");
+    expect(asked).toEqual([{ peer: guest.you, path: "img/a.png" }]);
+    expect(got).toEqual([{ path: "img/a.png", size: 300, requested: true }]);
+    // ディスクの画像は、セッションの中で貼られた画像としては持たない（後から入った人に配らない）
+    expect(host.images.size).toBe(0);
+    expect(guest.images.size).toBe(0);
+    expect(otherGot).toEqual([]);
+  });
+
+  it("ホストは画像を求めない。参加者に届いた画像の求めは無視する", async () => {
+    const { host, guest } = await setup();
+    const sends = (host["transport"] as FakeConn).sends;
+    host.requestImage("img/a.png");
+    expect((host["transport"] as FakeConn).sends).toBe(sends);
+    const asked: string[] = [];
+    guest["handlers"].imageRequest = (r) => asked.push(r.path);
+    // 参加者が 102 を受け取っても知らせない（ホストだけが画像を渡す）
+    guest["onData"](host.you, Uint8Array.from([102, 9, ...new TextEncoder().encode("img/a.png")]));
+    expect(asked).toEqual([]);
+  });
+
   it("10 MB を超える画像は、送らずに例外になる", async () => {
     const { host, guest } = await setup();
     const sends = (guest["transport"] as FakeConn).sends;

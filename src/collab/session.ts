@@ -14,6 +14,9 @@ const MSG_SYNC = 0;
 const MSG_AWARENESS = 1;
 const MSG_INFO = 100;
 const MSG_IMAGE = 101;
+const MSG_IMAGE_REQUEST = 102;
+/** 求める画像のパスの長さの上限 */
+const MAX_REQUEST_PATH = 1000;
 /** 画像は 1 枚 10 MB まで（docs/collaboration.md の「画像」） */
 export const MAX_IMAGE = 10 * 1024 * 1024;
 /** 中継サーバーのフレームは 1 MB までなので、画像は 512 KB ずつに分けて送る */
@@ -39,8 +42,10 @@ export interface SessionHandlers {
   joinRequest?(req: { peer: number; name: string }): void;
   /** ホストのファイル名が分かった（参加者だけ） */
   info?(info: { file: string }): void;
-  /** ほかの人が貼った画像がそろった */
-  image?(img: SharedImage): void;
+  /** 画像がそろった。requested は、自分がホストに求めた画像への返事か（参加者だけ） */
+  image?(img: SharedImage, meta: { requested: boolean }): void;
+  /** 参加者が、ホストのディスクにある画像を求めてきた（ホストだけ） */
+  imageRequest?(req: { peer: number; path: string }): void;
   closed?(c: { code: number; reason: string }): void;
   warning?(message: string): void;
 }
@@ -72,6 +77,8 @@ export class CollabSession {
   closeInfo: { code: number; reason: string } | null = null;
   /** 共同編集セッションの中で貼られた画像。キーは md からの相対パス。ホストは後から入った人にも送る */
   readonly images = new Map<string, SharedImage>();
+  /** ホストに求めた画像のパス（同じ画像を何度も求めないため。参加者だけ） */
+  private requested = new Set<string>();
 
   private off: () => void;
   private outbox: Outgoing[] = [];
@@ -151,6 +158,23 @@ export class CollabSession {
     if (img.bytes.byteLength > MAX_IMAGE) throw new Error("画像が大きすぎて共有できません（1 枚 10 MB まで）");
     this.images.set(img.path, img);
     this.sendImage(EVERYONE, img);
+  }
+
+  /** ホストのディスクにある画像を求める（参加者だけ）。返事は image で届く。同じパスは 1 回だけ求める */
+  requestImage(path: string) {
+    if (this.role !== "guest" || !this.host || this.status === "closed") return;
+    if (!path || path.length > MAX_REQUEST_PATH || this.requested.has(path)) return;
+    this.requested.add(path);
+    const enc = encoding.createEncoder();
+    encoding.writeVarUint(enc, MSG_IMAGE_REQUEST);
+    encoding.writeVarString(enc, path);
+    this.enqueue({ to: this.host, data: encoding.toUint8Array(enc) });
+  }
+
+  /** 求められた画像を、求めた人にだけ送る（ホストだけ。後から入った人には配らない） */
+  sendImageTo(peer: number, img: SharedImage) {
+    if (this.role !== "host" || img.bytes.byteLength > MAX_IMAGE) return;
+    this.sendImage(peer, img);
   }
 
   approve(peer: number) {
@@ -250,6 +274,9 @@ export class CollabSession {
       }
     } else if (kind === MSG_IMAGE) {
       this.onImagePart(from, dec);
+    } else if (kind === MSG_IMAGE_REQUEST && this.role === "host") {
+      const path = decoding.readVarString(dec);
+      if (path && path.length <= MAX_REQUEST_PATH) this.handlers.imageRequest?.({ peer: from, path });
     }
   }
 
@@ -285,8 +312,10 @@ export class CollabSession {
     }
     if (at !== size) return this.handlers.warning?.(`画像を受け取れませんでした: ${path}`);
     const img: SharedImage = link ? { path, bytes, link } : { path, bytes };
-    this.images.set(path, img);
-    this.handlers.image?.(img);
+    // 求めた画像への返事は、ホストのディスクの画像。セッションの中で貼られた画像としては持たない
+    const requested = from === this.host && this.requested.has(path) && !link;
+    if (!requested) this.images.set(path, img);
+    this.handlers.image?.(img, { requested });
   }
 
   private sendImage(to: number, { path, bytes, link }: SharedImage) {

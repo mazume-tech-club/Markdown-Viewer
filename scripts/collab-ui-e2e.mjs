@@ -17,7 +17,10 @@ const RELAY = "http://127.0.0.1:8787";
 rmSync(TMP, { recursive: true, force: true });
 mkdirSync(TMP, { recursive: true });
 const md = `${TMP}/議事録.md`;
-writeFileSync(md, "# 議事録\n\n- 最初の行\n");
+// ホストのディスクにもともとある画像（参加者には、求めるとホストから届く）
+mkdirSync(`${TMP}/img`, { recursive: true });
+writeFileSync(`${TMP}/img/図 1.png`, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64"));
+writeFileSync(md, "# 議事録\n\n- 最初の行\n\n![](img/図%201.png)\n");
 
 const procs = [];
 function launch(name, port, args = []) {
@@ -171,6 +174,8 @@ try {
   await until(guest, `${editorText}.includes("最初の行")`, "参加者にホストの内容が届く");
   check("承認されると参加者にホストの内容が届く", true);
   check("参加者のタブ名はホストのファイル名（共同編集）", (await until(guest, `document.querySelector(".tab[aria-selected='true'] .tab-name").textContent`, "タブ名")).includes("議事録.md（共同編集）"));
+  const diskImg = await until(guest, `[...document.querySelectorAll("#preview img")].find((i) => i.src.startsWith("blob:") && i.naturalWidth === 1)?.src`, "参加者のプレビューにホストのディスクの画像");
+  check("ホストのディスクにある画像が参加者のプレビューに出る", Boolean(diskImg));
   check("参加者は書ける", (await guest.evaluate(`document.querySelector(".cm-content").contentEditable`)) === "true");
   const peers = await until(host, `document.getElementById("collab-peers").children.length === 2 && document.getElementById("collab-peers").textContent`, "参加者の一覧");
   check("ホストの参加者の一覧に 2 人", true, peers);

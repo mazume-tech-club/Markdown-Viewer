@@ -44,6 +44,29 @@ export const safeDecode = (s: string) => {
   }
 };
 
+/**
+ * 共同編集で参加者がホストに求めてよい画像のパスか。md のフォルダの中の画像（SVG を除く）だけ。
+ * よければ . と .. を畳んだ / 区切りのパスを、だめなら null を返す（参加者にほかのファイルを読ませないため）
+ */
+export function requestableImage(path: string): string | null {
+  if (!path || path.length > 1000 || /[\x00-\x1f]/.test(path)) return null;
+  if (hasScheme(path) || isAbsolute(path) || path.startsWith("\\")) return null;
+  const parts: string[] = [];
+  for (const seg of path.split(/[\\/]+/)) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") {
+      if (!parts.length) return null;
+      parts.pop();
+    } else if (seg.includes(":")) {
+      return null;
+    } else {
+      parts.push(seg);
+    }
+  }
+  const rel = parts.join("/");
+  return /\.(png|jpe?g|gif|webp|bmp)$/i.test(rel) ? rel : null;
+}
+
 export function isMarkdownPath(path: string): boolean {
   return /\.(md|markdown|mdown|mkd)$/i.test(path);
 }
