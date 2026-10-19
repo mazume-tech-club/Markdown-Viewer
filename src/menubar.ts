@@ -30,6 +30,7 @@ export interface MenuActions {
   setMode(mode: Mode): void;
   toggleFilePanel(): void;
   toggleTerminal(): void;
+  terminalInFileDir(): void;
   setTerminalPosition(position: TermPosition): void;
   zoomIn(): void;
   zoomOut(): void;
@@ -128,6 +129,11 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
       checked: state.terminalOpen,
       action: () => checked(actions.toggleTerminal),
     });
+    const termFileDir = MenuItem.new({
+      text: "ターミナルを md のフォルダで開く",
+      enabled: state.canCopyPath,
+      action: actions.terminalInFileDir,
+    });
     const termPositionItems = Promise.all(
       TERM_POSITIONS.map(([pos, text]) =>
         CheckMenuItem.new({ text, checked: pos === state.terminalPosition, action: () => checked(() => actions.setTerminalPosition(pos)) }),
@@ -172,6 +178,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
         sep(),
         filePanel,
         terminal,
+        termFileDir,
         sub("ターミナルの位置", [termPositionItems]),
         sep(),
         item("拡大", "Ctrl++", actions.zoomIn),
@@ -197,7 +204,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     ]);
     const menu = await Menu.new({ items: top });
     await menu.setAsWindowMenu(getCurrentWindow());
-    return { top, copyPath: await copyPath, modeItems: await modeItems, themeItems: await themeItems, docStyleItems: await docStyleItems, filePanel: await filePanel, terminal: await terminal, termPositionItems: await termPositionItems };
+    return { top, copyPath: await copyPath, modeItems: await modeItems, themeItems: await themeItems, docStyleItems: await docStyleItems, filePanel: await filePanel, terminal: await terminal, termFileDir: await termFileDir, termPositionItems: await termPositionItems };
   })();
 
   /** 今の state をメニューに映す（チェックは毎回すべて付け直す） */
@@ -206,6 +213,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     await Promise.all([
       ...m.top.map((s) => s.setEnabled(!state.modal)),
       m.copyPath.setEnabled(state.canCopyPath),
+      m.termFileDir.setEnabled(state.canCopyPath),
       ...m.modeItems.map((it, i) => it.setChecked(MODES[i][0] === state.mode)),
       ...m.themeItems.map((it, i) => it.setChecked(THEMES[i][0] === state.theme)),
       ...m.docStyleItems.map((it, i) => it.setChecked(DOC_STYLES[i][0] === state.docStyle)),

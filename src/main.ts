@@ -102,6 +102,7 @@ const menuBar = setupMenuBar(
     setMode: (mode) => setMode(mode),
     toggleFilePanel: () => filePanel.toggle(),
     toggleTerminal: () => terminal.toggle(),
+    terminalInFileDir: () => void terminal.openInFileDir(),
     setTerminalPosition: (pos) => terminal.setPosition(pos),
     zoomIn: () => changeZoom(focusedTarget(), 0.1),
     zoomOut: () => changeZoom(focusedTarget(), -0.1),
@@ -785,6 +786,7 @@ const filePanel = setupFilePanel({
 const terminal = setupTerminal({
   // ファイルパネルを開いていれば作業フォルダ、なければ表示中のファイルのフォルダ
   cwd: () => (filePanel.isOpen() && filePanel.root()) || (active?.path ? dirname(active.path) : filePanel.root()),
+  fileDir: () => (active?.path ? dirname(active.path) : null),
   selectCopy: () => isSelectCopyEnabled(),
   notify: (text) => showStatus(text),
   onError: showError,

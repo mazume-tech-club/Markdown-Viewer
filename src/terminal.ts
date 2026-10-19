@@ -72,6 +72,8 @@ const DARK: ITheme = {
 export interface TerminalOptions {
   /** シェルを起動するフォルダ（作業フォルダ・開いているファイルのフォルダ）。null ならホーム */
   cwd(): string | null;
+  /** 表示中のファイルのフォルダ（「md のフォルダ」ボタン）。保存していないファイルなら null */
+  fileDir(): string | null;
   /** 選択で自動コピー・右クリックで貼り付け（設定と共通） */
   selectCopy(): boolean;
   notify(text: string): void;
@@ -99,6 +101,8 @@ export function setupTerminal(opts: TerminalOptions) {
   /** シェルが終了して、Enter で起動し直すのを待っている */
   let exited = false;
   let starting: Promise<void> | null = null;
+  /** 次の起動だけ使うフォルダ（「md のフォルダ」で起動するとき） */
+  let nextCwd: string | null = null;
 
   const isOpen = () => !panel.hidden;
   const notifyChange = () => opts.onChange(isOpen(), position);
@@ -227,7 +231,8 @@ export function setupTerminal(opts: TerminalOptions) {
   }
 
   async function spawn(t: Terminal) {
-    const cwd = opts.cwd();
+    const cwd = nextCwd ?? opts.cwd();
+    nextCwd = null;
     cwdLabel.textContent = cwd ?? "";
     cwdLabel.title = cwd ?? "";
     const channel = new Channel<TermEvent>();
@@ -314,6 +319,17 @@ export function setupTerminal(opts: TerminalOptions) {
 
   const hasFocus = () => isOpen() && panel.contains(document.activeElement);
 
+  /** 表示中のファイルのフォルダでシェルを起動し直す（ファイルパネルの作業フォルダより優先する） */
+  async function openInFileDir() {
+    const dir = opts.fileDir();
+    if (!dir) return opts.notify("保存済みのファイルを開いていません");
+    if (starting) return;
+    nextCwd = dir;
+    await show(true);
+    // 初めて起動したときは show の中で dir を使い終えている。動いていたシェルは起動し直す
+    if (nextCwd !== null) await restart();
+  }
+
   /** 文字を入力して Enter（「claude」ボタン） */
   async function run(command: string) {
     await show(true);
@@ -326,6 +342,7 @@ export function setupTerminal(opts: TerminalOptions) {
     term?.focus();
   });
   $("term-claude").addEventListener("click", () => void run("claude"));
+  $("term-filedir").addEventListener("click", () => void openInFileDir());
   $("term-restart").addEventListener("click", () => void restart());
   $("term-close").addEventListener("click", hide);
 
@@ -336,6 +353,7 @@ export function setupTerminal(opts: TerminalOptions) {
 
   return {
     toggle,
+    openInFileDir,
     isOpen,
     hasFocus,
     position: () => position,
