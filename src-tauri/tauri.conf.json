@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Markdown Preview",
   "mainBinaryName": "markdown-preview",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "identifier": "club.mazumetech.markdownpreview",
   "build": {
     "frontendDist": "../dist",
