@@ -35,7 +35,7 @@ import {
   setActiveLineEnabled,
 } from "./prefs";
 import { checkForUpdate, isAutoCheckEnabled, isKeepDraftEnabled, setAutoCheck, setKeepDraft, setupUpdater } from "./updater";
-import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, mdLink, normalizeInputPath, resolvePath, safeDecode } from "./paths";
+import { basename, dirname, hasScheme, isAbsolute, isMarkdownPath, mdLink, normalizeInputPath, requestableImage, resolvePath, safeDecode } from "./paths";
 import { getRecentCount, isFilePanelEnabled, RECENT_COUNT_MAX, setupFilePanel } from "./filepanel";
 import { MENU_KEYS, setupMenuBar, type Mode } from "./menubar";
 import { findSourcePos, type SourcePos } from "./sourcepos";
@@ -175,6 +175,8 @@ interface Tab {
   doc: EditorState;
   /** 貼り付けたが未保存の画像。キーは md からの相対パス（本文に書いたもの） */
   pendingImages: Map<string, PendingImage>;
+  /** 共同編集で、ホストのディスクから受け取った画像の blob URL（参加者だけ。表示専用で、保存しない） */
+  remoteImages: Map<string, string>;
   previewScroll: number;
   editorScroll: number;
   /** 編集中に外部でファイルが変更された（表示時にバナーを出す） */
@@ -211,6 +213,11 @@ function addPendingImage(tab: Tab, rel: string, bytes: Uint8Array, link?: string
 function clearPendingImages(tab: Tab) {
   for (const p of tab.pendingImages.values()) URL.revokeObjectURL(p.url);
   tab.pendingImages.clear();
+}
+
+function clearRemoteImages(tab: Tab) {
+  for (const url of tab.remoteImages.values()) URL.revokeObjectURL(url);
+  tab.remoteImages.clear();
 }
 
 // ---------- 描画 ----------
@@ -265,7 +272,12 @@ function resolveImageSrc(src: string): string | null {
   const file = safeDecode(src.split(/[?#]/)[0]);
   const pending = active.pendingImages.get(file);
   if (pending) return pending.url;
-  return active.path ? convertFileSrc(resolvePath(dirname(active.path), file)) : null;
+  if (active.path) return convertFileSrc(resolvePath(dirname(active.path), file));
+  const remote = active.remoteImages.get(file);
+  if (remote) return remote;
+  // 共同編集の参加者は md の場所を持たないので、ホストのディスクにある画像はホストに求める（届いたら描き直す）
+  if (active.collab?.role === "guest" && requestableImage(file)) active.collab.requestImage(file);
+  return null;
 }
 
 /** 相対パスの画像を、開いているファイルの場所を基準に asset URL に変換する */
@@ -506,6 +518,7 @@ function makeTab(path: string | null, text: string): Tab {
     dirty: false,
     doc: editor.createState(text),
     pendingImages: new Map(),
+    remoteImages: new Map(),
     previewScroll: 0,
     editorScroll: 0,
     externalChange: false,
@@ -915,6 +928,7 @@ async function closeTab(tab: Tab) {
   if (i < 0) return;
   tabs.splice(i, 1);
   clearPendingImages(tab);
+  clearRemoteImages(tab);
   if (tab.path && !tabs.some((t) => t.path && samePath(t.path, tab.path!))) {
     void invoke("unwatch_file", { path: tab.path }).catch(() => {});
   }
@@ -1113,13 +1127,28 @@ function collabHandlers(getTab: () => Tab | undefined, extra: SessionHandlers = 
     info() {
       renderTabs();
     },
-    image(img) {
+    image(img, { requested }) {
       const tab = getTab();
-      // ほかの人から届いたパスなので、「〇〇.assets」直下の画像だけを受け取る（保存時に md の外へ書かせないため）
-      if (!tab || !SHARED_IMAGE_PATH.test(img.path)) return console.warn("collab: 受け取らない画像", img.path);
-      const link = img.link && img.link.length <= 1000 && !/[\r\n]/.test(img.link) ? img.link : undefined;
-      addPendingImage(tab, img.path, img.bytes, link, false);
+      if (!tab) return;
+      if (SHARED_IMAGE_PATH.test(img.path)) {
+        // ほかの人が貼った画像は、「〇〇.assets」直下のものだけを保存待ちにする（保存時に md の外へ書かせないため）
+        const link = img.link && img.link.length <= 1000 && !/[\r\n]/.test(img.link) ? img.link : undefined;
+        addPendingImage(tab, img.path, img.bytes, link, false);
+      } else if (requested && requestableImage(img.path)) {
+        // ホストのディスクにある画像は、表示するだけ（コピーとして保存しても書き出さない）
+        const ext = img.path.split(".").pop()?.toLowerCase() ?? "";
+        const type = ext === "jpeg" ? "image/jpeg" : Object.keys(IMAGE_EXT).find((m) => IMAGE_EXT[m] === ext) ?? "image/png";
+        const old = tab.remoteImages.get(img.path);
+        if (old) URL.revokeObjectURL(old);
+        tab.remoteImages.set(img.path, URL.createObjectURL(new Blob([img.bytes as BlobPart], { type })));
+      } else {
+        return console.warn("collab: 受け取らない画像", img.path);
+      }
       if (tab === active) scheduleRender();
+    },
+    imageRequest(req) {
+      const tab = getTab();
+      if (tab?.collab?.role === "host") void answerImageRequest(tab, tab.collab, req);
     },
     closed(c) {
       const tab = getTab();
@@ -1141,6 +1170,21 @@ function collabHandlers(getTab: () => Tab | undefined, extra: SessionHandlers = 
       extra.warning?.(m);
     },
   };
+}
+
+/** 参加者が求めた画像を、ホストのディスク（または保存待ちの画像）から読んで返す。md のフォルダの中の画像だけ */
+async function answerImageRequest(tab: Tab, s: CollabSession, { peer, path }: { peer: number; path: string }) {
+  const rel = requestableImage(path);
+  if (!rel || !tab.path) return console.warn("collab: 渡さない画像", path);
+  try {
+    const bytes =
+      tab.pendingImages.get(path)?.bytes ??
+      new Uint8Array(await invoke<ArrayBuffer>("read_binary", { path: resolvePath(dirname(tab.path), rel) }));
+    if (bytes.byteLength > MAX_IMAGE) return console.warn("collab: 画像が大きすぎて渡せません", path);
+    s.sendImageTo(peer, { path, bytes });
+  } catch (err) {
+    console.warn("collab: 画像を読めませんでした", path, err);
+  }
 }
 
 function watchCollabText(tab: Tab, s: CollabSession) {
