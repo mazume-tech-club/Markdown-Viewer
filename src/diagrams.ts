@@ -125,6 +125,22 @@ async function renderOne(kind: string, src: string, dark: boolean): Promise<stri
       const { parseErd, erdToDot } = await import("./erd");
       return renderGeneratedDot(erdToDot(parseErd(src)));
     }
+    case "mindmap": {
+      const { parseMindmap, mindmapToDot } = await import("./mindmap");
+      return renderGeneratedDot(mindmapToDot(parseMindmap(src)));
+    }
+    case "flow": {
+      const { parseFlow, flowToDot } = await import("./flow");
+      return renderGeneratedDot(flowToDot(parseFlow(src)));
+    }
+    case "screen": {
+      const { parseScreens, screensToDot } = await import("./screen");
+      return renderGeneratedDot(screensToDot(parseScreens(src)));
+    }
+    case "svgbob": {
+      const { renderBob } = await import("./svgbob");
+      return sanitizeSvg(await renderBob(src));
+    }
     case "math":
       return renderMath(src, true);
     case "math-inline":

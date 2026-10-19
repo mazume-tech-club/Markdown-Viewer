@@ -9,6 +9,8 @@
 //   | id | int | PK | |
 //   | dept_id | int | FK depts.id | 所属 |
 
+import { COLOR, FONT, html, textWidth } from "./dotutil";
+
 export interface ErdColumn {
   name: string;
   type: string;
@@ -141,22 +143,12 @@ export function parseErd(src: string): ErdModel {
   return model;
 }
 
-const html = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+const HEAD_BG = COLOR.accentSoft;
+const LINE = COLOR.line;
+const MUTED = COLOR.muted;
 
-// 書体は c4 と同じ。配色は手書き SVG・設計メモの文書スタイルと同じ
-const FONT = "Yu Gothic UI,Meiryo,sans-serif";
-const HEAD_BG = "#dceff1";
-const LINE = "#c3cbd2";
-const MUTED = "#5d6974";
-
-/**
- * セルの最小幅（pt）。Graphviz は日本語の文字幅を知らず半角の幅で見積もるので、
- * 全角は文字の大きさ、半角はその 0.6 倍ほどとして足し、枠からはみ出さないようにする（少し広めに見積もる）
- */
-function cellWidth(texts: string[], size: number): number {
-  const w = (t: string) => [...t].reduce((sum, ch) => sum + (/[\u0000-\u00ff\uff61-\uff9f]/.test(ch) ? 0.62 : 1.05) * size, 0);
-  return Math.ceil(Math.max(0, ...texts.map(w)) + 14);
-}
+/** セルの最小幅（pt）。日本語がはみ出さないよう、文字幅を見積もって余白を足す */
+const cellWidth = (texts: string[], size: number) => Math.ceil(Math.max(0, ...texts.map((t) => textWidth(t, size))) + 14);
 
 /** 文字に色と大きさを付ける（空の <font></font> は Graphviz の構文エラーになるので、空なら何も出さない） */
 const font = (text: string, attrs: string) => (text ? `<font ${attrs}>${text}</font>` : "");

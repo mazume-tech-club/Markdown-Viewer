@@ -442,6 +442,9 @@ button:hover { background: var(--btn-hover); }
   .diagram.done[data-kind="graphviz"],
   .diagram.done[data-kind="c4"],
   .diagram.done[data-kind="erd"],
+  .diagram.done[data-kind="mindmap"],
+  .diagram.done[data-kind="flow"],
+  .diagram.done[data-kind="screen"],
   .diagram.done[data-kind="wavedrom"] {
     background: #fff;
     border-radius: 6px;
