@@ -94,6 +94,7 @@ const menuBar = setupMenuBar(
     exportTab: () => void exportTab(),
     copyPath: () => void copyPath(),
     revealFile: () => void revealFile(),
+    openFileDirInPanel: () => active.path && void filePanel.openFolder(dirname(active.path)),
     closeTab: () => void closeTab(active),
     quit: () => void appWindow.close(),
     undo: () => withEditor(() => (collabUndo() ? collabUndo()!.undo() : editor.undo())),

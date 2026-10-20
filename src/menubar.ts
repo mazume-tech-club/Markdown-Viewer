@@ -20,6 +20,7 @@ export interface MenuActions {
   exportTab(): void;
   copyPath(): void;
   revealFile(): void;
+  openFileDirInPanel(): void;
   closeTab(): void;
   quit(): void;
   undo(): void;
@@ -107,6 +108,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
   const ready = (async () => {
     const copyPath = item("パスをコピー", "Ctrl+Shift+C", actions.copyPath);
     const revealFile = item("フォルダを開く（エクスプローラー）", undefined, actions.revealFile);
+    const fileDirInPanel = item("フォルダをファイルパネルで開く", undefined, actions.openFileDirInPanel);
     const modeItems = Promise.all(
       MODES.map(([mode, text, keys]) =>
         CheckMenuItem.new({ text: label(text, keys), checked: mode === state.mode, action: () => checked(() => actions.setMode(mode)) }),
@@ -162,6 +164,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
         item("エクスポート…", undefined, actions.exportTab),
         sep(),
         copyPath,
+        fileDirInPanel,
         revealFile,
         sep(),
         item("タブを閉じる", "Ctrl+W", actions.closeTab),
@@ -215,7 +218,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     ]);
     const menu = await Menu.new({ items: top });
     await menu.setAsWindowMenu(getCurrentWindow());
-    return { top, copyPath: await copyPath, revealFile: await revealFile, modeItems: await modeItems, themeItems: await themeItems, docStyleItems: await docStyleItems, filePanel: await filePanel, toc: await toc, terminal: await terminal, termFileDir: await termFileDir, termPositionItems: await termPositionItems };
+    return { top, copyPath: await copyPath, revealFile: await revealFile, fileDirInPanel: await fileDirInPanel, modeItems: await modeItems, themeItems: await themeItems, docStyleItems: await docStyleItems, filePanel: await filePanel, toc: await toc, terminal: await terminal, termFileDir: await termFileDir, termPositionItems: await termPositionItems };
   })();
 
   /** 今の state をメニューに映す（チェックは毎回すべて付け直す） */
@@ -225,6 +228,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
       ...m.top.map((s) => s.setEnabled(!state.modal)),
       m.copyPath.setEnabled(state.canCopyPath),
       m.revealFile.setEnabled(state.canCopyPath),
+      m.fileDirInPanel.setEnabled(state.canCopyPath && state.filePanelEnabled),
       m.termFileDir.setEnabled(state.canCopyPath),
       ...m.modeItems.map((it, i) => it.setChecked(MODES[i][0] === state.mode)),
       ...m.themeItems.map((it, i) => it.setChecked(THEMES[i][0] === state.theme)),

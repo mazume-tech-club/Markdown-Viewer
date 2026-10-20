@@ -70,6 +70,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
   const status = $("files-status");
   const rootLabel = $("files-root");
   const toggleBtn = $<HTMLButtonElement>("btn-files");
+  const hereBtn = $<HTMLButtonElement>("files-here");
   const menu = $("files-menu");
   const recentSection = $("files-recent");
   const recentList = $("files-recent-list");
@@ -672,6 +673,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
   // ---- ボタン・外部の変化 ----
 
   toggleBtn.addEventListener("click", () => toggle());
+  hereBtn.addEventListener("click", () => activeFile && void setRoot(dirname(activeFile)));
   $("files-pick").addEventListener("click", () => void pickFolder());
   $("files-refresh").addEventListener("click", () => void retry());
 
@@ -696,6 +698,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
   if (root) addRecent(root);
   else renderRecent();
   toggleBtn.hidden = !isFilePanelEnabled();
+  hereBtn.disabled = true;
   // 初回は閉じた状態（アップデート直後に画面が急に狭くならないように）
   if (isFilePanelEnabled() && localStorage.getItem(OPEN_KEY) === "1") void show(false);
 
@@ -722,6 +725,7 @@ export function setupFilePanel(opts: FilePanelOptions) {
     setActive(path: string | null) {
       if (path === activeFile) return;
       activeFile = path;
+      hereBtn.disabled = !path;
       if (!isOpen()) return;
       if (path) void reveal(path);
       else render();
