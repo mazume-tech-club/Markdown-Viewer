@@ -93,6 +93,7 @@ const menuBar = setupMenuBar(
     pdf: () => void previewPdf(),
     exportTab: () => void exportTab(),
     copyPath: () => void copyPath(),
+    revealFile: () => void revealFile(),
     closeTab: () => void closeTab(active),
     quit: () => void appWindow.close(),
     undo: () => withEditor(() => (collabUndo() ? collabUndo()!.undo() : editor.undo())),
@@ -557,6 +558,11 @@ async function copyPath(path = active.path) {
   }
 }
 
+/** タブのファイルをエクスプローラーで選んだ状態でフォルダを開く（既定は表示中のタブ） */
+async function revealFile(path = active.path) {
+  if (path) await revealItemInDir(path).catch(showError);
+}
+
 function renderTabs() {
   tabBar.replaceChildren(
     ...tabs.map((tab) => {
@@ -656,7 +662,7 @@ tabMenu.addEventListener("click", (e) => {
   if (!action || !tab) return;
   closeTabMenu();
   if (action === "copy" && tab.path) void copyPath(tab.path);
-  else if (action === "reveal" && tab.path) void revealItemInDir(tab.path).catch(showError);
+  else if (action === "reveal" && tab.path) void revealFile(tab.path);
   else if (action === "close") void closeTab(tab);
 });
 
@@ -1431,7 +1437,7 @@ function caretAt(x: number, y: number): { node: Node; offset: number } | null {
   return r ? { node: r.startContainer, offset: r.startOffset } : null;
 }
 
-// プレビューを右クリック →「コピー」（文字を選んでいるときだけ）「パスをコピー」。
+// プレビューを右クリック →「コピー」（文字を選んでいるときだけ）「パスをコピー」「フォルダを開く」。
 // 図や画像の上ではその上に「拡大して見る」「注釈を編集」（注釈は画像だけ）
 const previewMenu = $("preview-menu");
 const menuItem = (action: string) => previewMenu.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
@@ -1439,6 +1445,7 @@ const viewItem = menuItem("view");
 const annotateItem = menuItem("annotate");
 const copyTextItem = menuItem("copy-text");
 const copyPathItem = menuItem("copy-path");
+const revealItem = menuItem("reveal");
 const menuSep = previewMenu.querySelector<HTMLElement>(".menu-sep")!;
 let menuTarget: HTMLElement | SVGSVGElement | null = null;
 let menuImage: number | null = null;
@@ -1452,7 +1459,7 @@ preview.addEventListener("contextmenu", (e) => {
   viewItem.hidden = menuSep.hidden = !menuTarget;
   annotateItem.hidden = menuImage === null;
   copyTextItem.hidden = !menuText;
-  copyPathItem.disabled = !active.path;
+  copyPathItem.disabled = revealItem.disabled = !active.path;
   showMenuAt(previewMenu, e);
 });
 const closePreviewMenu = () => {
@@ -1472,6 +1479,7 @@ previewMenu.addEventListener("click", async (e) => {
   closePreviewMenu();
   if (action === "copy-text") return void navigator.clipboard.writeText(text).catch(showError);
   if (action === "copy-path") return void copyPath();
+  if (action === "reveal") return void revealFile();
   if (action === "view" && target) return openViewer(target);
   if (action !== "annotate" || n === null) return;
   // ソースのその画像にカーソルを移してから開く（エディタ側の位置で書き換えるため）
