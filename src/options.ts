@@ -61,6 +61,14 @@ export const OPTION_FEATURES = [
     kinds: { screen: "screen" },
   },
   {
+    id: "gantt",
+    label: "ガントチャート（表から・GUI で編集）",
+    title:
+      "```gantt に書いたタスクの表から、日付の横棒のガントチャートを描きます。プレビューの図をダブルクリックするか、挿入 → ガントチャート で表とドラッグで編集できます",
+    group: "diagram",
+    kinds: { gantt: "gantt" },
+  },
+  {
     id: "judgeColors",
     label: "表の ○ / △ / ✕ を色付け",
     title: "表のセルが ○・あり・OK などだけなら緑、△・一部なら黄、✕・なし・NG などなら赤の太字にします",

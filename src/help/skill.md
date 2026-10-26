@@ -1,6 +1,6 @@
 ---
 name: markdown-preview
-description: "What renders in the Markdown Preview app (Tauri). Use when writing or editing a .md file the user will view in that app — design docs, reports, specs, diagrams — or when choosing how to draw a diagram (Mermaid / Graphviz / C4 / WaveDrom / ER diagram / mind map / business flow / screen transition / ASCII art) or math in Markdown."
+description: "What renders in the Markdown Preview app (Tauri). Use when writing or editing a .md file the user will view in that app — design docs, reports, specs, diagrams — or when choosing how to draw a diagram (Mermaid / Graphviz / C4 / WaveDrom / ER diagram / mind map / business flow / screen transition / Gantt chart / ASCII art) or math in Markdown."
 ---
 
 # Markdown Preview で表示できる書き方
@@ -9,7 +9,7 @@ description: "What renders in the Markdown Preview app (Tauri). Use when writing
 ここに無い記法（PlantUML など）は**描画されない**ので使わない。
 書き方の例はアプリのヘルプ（F1）にある。
 
-数式・ER 図・マインドマップ・業務フロー・画面遷移図・AA の図は**オプション機能**（設定でオンにした人だけ描ける）。オフの人にはコードブロックや `$` の付いた文字のまま見える。
+数式・ER 図・マインドマップ・業務フロー・画面遷移図・ガントチャート・AA の図は**オプション機能**（設定でオンにした人だけ描ける）。オフの人にはコードブロックや `$` の付いた文字のまま見える。
 ユーザーが使っていると分かっているときに使う。分からなければ使う前に聞く。
 
 ## 対応一覧
@@ -27,6 +27,7 @@ description: "What renders in the Markdown Preview app (Tauri). Use when writing
 | ```` ```markmap ```` | アプリ独自（見出し・箇条書き → DOT。オプション） | markmap と同じ書き方のマインドマップ |
 | ```` ```flow ```` | アプリ独自（→ DOT。オプション「業務フロー」） | 担当ごとのレーンの業務フロー。下の「flow の書き方」 |
 | ```` ```screen ```` | アプリ独自（→ DOT。オプション「画面遷移図」） | 下の「screen の書き方」 |
+| ```` ```gantt ```` | アプリ独自（表 → SVG。オプション「ガントチャート」） | タスクの表から日付の横棒。下の「gantt の書き方」。Mermaid の gantt とは別物 |
 | ```` ```bob ```` | svgbob（WASM。オプション「AA を図に」） | 罫線・記号の AA を線の図に。日本語は半角 2 文字分 |
 | HTML | DOMPurify で無害化 | `<details>` `<summary>` `<br>` `<img width>` `<kbd>` など可 |
 
@@ -71,13 +72,14 @@ description: "What renders in the Markdown Preview app (Tauri). Use when writing
 
 | 描きたいもの | 使う記法 |
 |---|---|
-| フロー・シーケンス・クラス・状態・ER・ガント・円グラフ・マインドマップ・タイムライン・gitGraph・journey・quadrantChart | Mermaid |
+| フロー・シーケンス・クラス・状態・ER・円グラフ・マインドマップ・タイムライン・gitGraph・journey・quadrantChart | Mermaid |
 | アーキテクチャ図（`architecture-beta`）・ブロック図（`block-beta`）・棒/折れ線グラフ（`xychart-beta`）・パケット図（`packet-beta`）・カンバン（`kanban`）・レーダー（`radar-beta`）・ツリーマップ（`treemap-beta`）・要件図（`requirementDiagram`） | Mermaid。xychart の日本語ラベルは `"4月"` と引用符で囲む |
 | テーブル定義から ER 図（列・型・PK/FK を全部見せたい） | ```` ```erd ````（オプション。下の「erd の書き方」） |
 | 数式 | `$...$` / `$$...$$`（オプション） |
 | 考えの整理・機能の一覧（階層だけ見せたい） | ```` ```markmap ````（オプション）。Mermaid の `mindmap` より普通の箇条書きに近い |
 | 担当（部署・人・システム）をまたぐ業務の流れ | ```` ```flow ````（オプション） |
 | 画面のつながり | ```` ```screen ````（オプション） |
+| 予定・工程（担当・進捗も見せたい、Excel の工程表の代わり） | ```` ```gantt ````（オプション。下の「gantt の書き方」）。使えない人には Mermaid の `gantt`（担当・進捗の列なし） |
 | すでに AA で描いた図・手早く描きたい構成図 | ```` ```bob ````（オプション） |
 | ノードが多い依存関係、細かい見た目指定、record 型の表ノード | Graphviz (`dot`) |
 | C4（システム構成）で線を箱に重ねたくない／配置を指定したい | ```` ```c4 ````（推奨） |
@@ -167,6 +169,28 @@ title 会員登録
 - `画面A -> 画面B : 操作`（`: 操作` は省略可）。`<->` は行き来
 - 矢印の無い `画面 : 説明` は画面の説明。名前だけの行はつながりの無い画面
 - `direction TB` で上から下（既定は左から右）
+
+## gantt の書き方（オプション機能）
+
+```gantt
+タイトル: 新システム導入
+休日: 2026-11-03, 2026-12-29〜2027-01-03
+表示: 週
+
+| タスク       | 開始       | 終了       | 日数 | 担当 | 進捗 |
+|--------------|------------|------------|------|------|------|
+| # 設計       |            |            |      |      |      |
+| 要件定義     | 2026-11-02 |            | 5    | 土屋 | 100% |
+| 基本設計     |            | 2026-11-20 |      | 佐藤 | 40%  |
+| 設計レビュー | 2026-11-24 |            | 0    |      |      |
+```
+
+- 表の上に `キー: 値` の設定行（`タイトル` / `休日` / `表示`）。表示は `日`（既定）・`週`・`月`
+- 列は `タスク`（必須）`開始` `終了` `日数` `担当` `進捗` `メモ`。英語の `task` `start` `end` `days` `owner` `progress` `note` も可。使わない列は省いてよい
+- タスク名が `# ` で始まる行はグループ（1 段だけ）。日数 `0` はマイルストーン（◆）
+- 日付は `2026-11-02`（`2026/11/2` も可。年は省かない）。日数は営業日で、土日と `休日` に書いた日を数えない。祝日は書いた日だけが休み
+- 開始が空なら前のタスクの翌営業日から。終了か日数のどちらかは必ず書く。両方書いて合わないと終了日を使い ⚠ が出る
+- アプリの図のビルダー（プレビューの図をダブルクリック）で編集すると、列幅をそろえた表に書き直され、表と設定以外の行は消える
 
 ## bob の書き方（オプション機能）
 

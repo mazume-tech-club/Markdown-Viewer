@@ -23,6 +23,9 @@ const OPTIONAL_KINDS = new Map(
   OPTION_FEATURES.flatMap((f) => ("kinds" in f ? Object.entries(f.kinds).map(([lang, kind]) => [lang, { kind, feature: f }] as const) : [])),
 );
 
+/** fence の言語名の図の種別（オプション機能の図も含める。図のビルダーのプレビュー用） */
+export const diagramKind = (lang: string): string | undefined => DIAGRAM_KINDS[lang] ?? OPTIONAL_KINDS.get(lang)?.kind;
+
 let allOptions = false;
 /** 設定にかかわらず、オプションの図もすべて描く（ヘルプで例を見せるため） */
 export function enableAllOptions() {

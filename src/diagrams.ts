@@ -137,6 +137,10 @@ async function renderOne(kind: string, src: string, dark: boolean): Promise<stri
       const { parseScreens, screensToDot } = await import("./screen");
       return renderGeneratedDot(screensToDot(parseScreens(src)));
     }
+    case "gantt": {
+      const [{ parseGantt, scheduleGantt }, { ganttToSvg, todayDay }] = await Promise.all([import("./gantt"), import("./ganttsvg")]);
+      return sanitizeSvg(ganttToSvg(scheduleGantt(parseGantt(src)), { dark, today: todayDay() }));
+    }
     case "svgbob": {
       const { renderBob } = await import("./svgbob");
       return sanitizeSvg(await renderBob(src));
@@ -190,8 +194,9 @@ function tighten(el: HTMLElement) {
   svg.style.maxWidth = `${b.width + pad * 2}px`;
 }
 
+// ガントチャートは今日の線を引くので、日付が変わったら描き直す
 const keyOf =(el: HTMLElement, dark: boolean) =>
-  `${el.dataset.kind}\u0000${dark ? 1 : 0}\u0000${el.querySelector(".diagram-src")?.textContent ?? ""}`;
+  `${el.dataset.kind}\u0000${dark ? 1 : 0}\u0000${el.dataset.kind === "gantt" ? new Date().toDateString() : ""}\u0000${el.querySelector(".diagram-src")?.textContent ?? ""}`;
 
 /** キャッシュ済みの図を同期的に埋める（DOM に入れる前のちらつき防止用） */
 export function fillCached(root: ParentNode, dark: boolean) {
