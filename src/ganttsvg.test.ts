@@ -32,6 +32,18 @@ describe("ganttToSvg", () => {
     expect(svg).toContain('stroke="#d03b2f"'); // 今日の線
   });
 
+  it("draws owner headings with groups under them when grouping by owner", () => {
+    const svg = svgOf("まとめ: 担当\n" + SRC);
+    // 人の見出し → グループの小見出し の順に出る
+    expect(svg.indexOf(">土屋<")).toBeLessThan(svg.indexOf(">設計<"));
+    expect(svg).toContain(">（担当なし）<");
+    // 見出しが担当なので、横棒の右には進捗だけを出す
+    expect(svg).toContain(">40%<");
+    expect(svg).not.toContain("土屋  40%");
+    // 横棒は表の行のまま（図のビルダーのドラッグに使う）
+    expect(svg).toContain('data-row="1"');
+  });
+
   it("omits the today line outside the range and labels weeks and months", () => {
     expect(svgOf(SRC, parseDate("2027-05-01")!)).not.toContain('stroke="#d03b2f"');
     const week = svgOf("表示: 週\n| タスク | 開始 | 日数 |\n|---|---|---|\n| A | 2026-11-04 | 3 |");

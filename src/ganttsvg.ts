@@ -3,7 +3,7 @@
 // 図のビルダーで横棒をドラッグできるよう、横棒に data-row（表の行）、svg に 1 日の幅と最初の日を持たせる
 
 import { FONT, html, textWidth } from "./dotutil";
-import { formatDate, parseDate, weekday, type GanttPlan, type GanttView } from "./gantt";
+import { formatDate, ganttRows, parseDate, weekday, type GanttPlan, type GanttView } from "./gantt";
 
 /** 1 日の幅（px） */
 export const DAY_WIDTH: Record<GanttView, number> = { day: 24, week: 10, month: 4 };
@@ -68,23 +68,28 @@ export function ganttToSvg(plan: GanttPlan, opts: { dark: boolean; today: number
   const dw = DAY_WIDTH[plan.view];
   const titleH = plan.title ? 28 : 0;
   const tasks = plan.items.filter((i) => i.type === "task");
-  const indent = plan.items.some((i) => i.type === "group") ? 14 : 0;
+  // 行の並び（グループごとか担当ごとか）。担当ごとなら 人 → グループ → タスク の 3 段
+  const rows = ganttRows(plan);
+  const indent = rows.some((r) => r.type === "head") ? 14 : 0;
 
   // 左のタスク名の欄の幅
   const nameW = Math.min(
     320,
     Math.max(
       110,
-      ...plan.items.map((i) =>
-        i.type === "group" ? textWidth(i.name, SIZE) * 1.08 : textWidth(i.name, SIZE) + (i.group >= 0 ? indent : 0) + (i.warning ? 16 : 0),
+      ...rows.map((r) =>
+        r.type === "head"
+          ? textWidth(r.name, SIZE) * 1.08 + r.level * indent
+          : textWidth(r.task.name, SIZE) + r.depth * indent + (r.task.warning ? 16 : 0),
       ),
     ) + PAD * 2,
   );
   const origin = firstDay(plan.from, plan.view);
   const left = nameW;
   const x = (day: number) => left + (day - origin) * dw;
-  /** 横棒の右に出す文字（担当と進捗） */
-  const sideText = (t: (typeof tasks)[number]) => [t.owner, t.progress !== null ? `${t.progress}%` : ""].filter(Boolean).join("  ");
+  /** 横棒の右に出す文字（担当と進捗。担当ごとのときは見出しが担当なので、担当は出さない） */
+  const sideText = (t: (typeof tasks)[number]) =>
+    [plan.groupBy === "owner" ? "" : t.owner, t.progress !== null ? `${t.progress}%` : ""].filter(Boolean).join("  ");
   // 右端: 最後の日と、横棒の右の文字が収まるところまで（月・週の区切りまで伸ばす）
   let right = Math.max(...tasks.map((t) => x(t.end + 1) + 8 + textWidth(sideText(t), SIZE - 1)));
   let last = origin + Math.ceil((right - left) / dw);
@@ -96,7 +101,7 @@ export function ganttToSvg(plan: GanttPlan, opts: { dark: boolean; today: number
   }
   right = x(last);
   const top = titleH + HEAD_H;
-  const height = top + plan.items.length * ROW_H + PAD;
+  const height = top + rows.length * ROW_H + PAD;
   const width = right + PAD;
 
   const out: string[] = [];
@@ -105,15 +110,17 @@ export function ganttToSvg(plan: GanttPlan, opts: { dark: boolean; today: number
 
   // 休み（土日と休日）の網掛けと、区切りの縦線
   const bodyTop = top;
-  const bodyH = plan.items.length * ROW_H;
+  const bodyH = rows.length * ROW_H;
   for (let d = origin; d < last; d++) {
     const off = weekday(d) === 0 || weekday(d) === 6 || plan.holidays.has(d);
     if (off && plan.view !== "month") out.push(`<rect x="${x(d)}" y="${titleH + 20}" width="${dw}" height="${HEAD_H - 20 + bodyH}" fill="${c.off}"/>`);
     else if (off && plan.holidays.has(d)) out.push(`<rect x="${x(d)}" y="${bodyTop}" width="${dw}" height="${bodyH}" fill="${c.off}"/>`);
   }
-  // グループの帯
-  plan.items.forEach((it, i) => {
-    if (it.type === "group") out.push(`<rect x="0" y="${top + i * ROW_H}" width="${width}" height="${ROW_H}" fill="${c.band}" opacity="0.8"/>`);
+  // 見出しの帯（担当ごとのときの小見出しは薄く）
+  rows.forEach((r, i) => {
+    if (r.type === "head") {
+      out.push(`<rect x="0" y="${top + i * ROW_H}" width="${width}" height="${ROW_H}" fill="${c.band}" opacity="${r.level ? 0.4 : 0.8}"/>`);
+    }
   });
 
   // 目盛り: 上の段（月・年）と下の段（日・週・月）
@@ -148,20 +155,22 @@ export function ganttToSvg(plan: GanttPlan, opts: { dark: boolean; today: number
   out.push(`<line x1="${left}" y1="${titleH}" x2="${left}" y2="${top + bodyH}" stroke="${c.line}"/>`);
 
   // 行
-  plan.items.forEach((it, i) => {
+  rows.forEach((r, i) => {
     const y = top + i * ROW_H;
     const mid = y + ROW_H / 2;
-    if (it.type === "group") {
-      out.push(text(PAD, mid + 4, it.name, 'font-weight="bold"'));
-      const members = tasks.filter((t) => t.group === it.index);
-      if (members.length) {
-        const from = Math.min(...members.map((t) => t.start));
-        const to = Math.max(...members.map((t) => t.end));
-        out.push(`<rect x="${x(from)}" y="${mid - 3}" width="${x(to + 1) - x(from)}" height="6" fill="${c.summary}"/>`);
+    if (r.type === "head") {
+      out.push(text(PAD + r.level * indent, mid + 4, r.name, 'font-weight="bold"'));
+      // 見出しの下のタスクの最初の日から最後の日までの集計の棒（小見出しは細く）
+      if (r.tasks.length) {
+        const from = Math.min(...r.tasks.map((t) => t.start));
+        const to = Math.max(...r.tasks.map((t) => t.end));
+        const h = r.level ? 4 : 6;
+        out.push(`<rect x="${x(from)}" y="${mid - h / 2}" width="${x(to + 1) - x(from)}" height="${h}" fill="${c.summary}"${r.level ? ' opacity="0.6"' : ""}/>`);
       }
       return;
     }
-    const nx = PAD + (it.group >= 0 ? indent : 0);
+    const it = r.task;
+    const nx = PAD + r.depth * indent;
     if (it.warning) {
       out.push(`<text x="${nx}" y="${mid + 4}" font-size="${SIZE}" fill="${c.warn}"><title>${html(it.warning)}</title>⚠</text>`);
     }
