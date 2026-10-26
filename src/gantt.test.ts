@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, parseDate, parseGantt, scheduleGantt, writeGantt, type GanttModel } from "./gantt";
+import { formatDate, ganttToMermaid, parseDate, parseGantt, scheduleGantt, writeGantt, type GanttModel } from "./gantt";
 import helpSource from "./help/help.md?raw";
 import skillSource from "./help/skill.md?raw";
 
@@ -150,6 +150,38 @@ describe("writeGantt", () => {
     expect(out).toContain("| メモ       |");
     expect(out).toContain("表示: 週");
     expect(parseGantt(out).rows[1].note).toBe("顧客と合意");
+  });
+});
+
+describe("ganttToMermaid", () => {
+  it("writes computed dates, sections, milestones and progress tags", () => {
+    expect(ganttToMermaid(parseGantt(SAMPLE))).toBe(
+      [
+        "gantt",
+        "  title 新システム導入",
+        "  dateFormat YYYY-MM-DD",
+        "  axisFormat %m/%d",
+        "  tickInterval 1week",
+        "  excludes weekends, 2026-11-03, 2026-11-23",
+        "  section 設計",
+        // Mermaid の終了日はその日を含まないので、1 日後を書く
+        "  要件定義（土屋） :done, t1, 2026-11-02, 2026-11-10",
+        "  基本設計（佐藤） :active, t2, 2026-11-09, 2026-11-21",
+        "  設計レビュー :milestone, t3, 2026-11-24, 0d",
+        "  section 開発",
+        "  実装（土屋） :t4, 2026-11-25, 2026-12-09",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("escapes characters Mermaid reads as syntax and expands holiday ranges", () => {
+    const src = "休日: 2026-12-30〜2027-01-01\n表示: 月\n" + table("| a:b;c#d | 2026-12-28 | | 1 |");
+    const out = ganttToMermaid(parseGantt(src));
+    expect(out).toContain("  axisFormat %Y/%m\n  tickInterval 1month\n");
+    expect(out).toContain("excludes weekends, 2026-12-30, 2026-12-31, 2027-01-01");
+    expect(out).toContain("  a：b；c＃d :t1, 2026-12-28, 2026-12-29");
+    expect(out).not.toContain("title");
   });
 });
 

@@ -813,6 +813,7 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .g-table input:disabled { visibility: hidden; }
 .g-holidays { width: 320px; }
 .g-error { color: var(--error); }
+.b-preview-bar .g-copy { margin-left: auto; white-space: nowrap; }
 /* プレビューの横棒: 中ほどをつかんで移動、右端で期間を変える */
 /* ドラッグしやすいよう縮めずに出し、はみ出す分はスクロールする（.diagram.done svg の max-width より強くする） */
 .builder-preview .diagram.done svg.gantt { max-width: none; cursor: default; }
