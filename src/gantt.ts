@@ -374,3 +374,38 @@ export function writeGantt(model: GanttModel): string {
   out.push(line(head), `|${widths.map((w) => "-".repeat(w + 2)).join("|")}|`, ...rows.map(line));
   return out.join("\n") + "\n";
 }
+
+// ---------- Mermaid への変換 ----------
+// GitHub など、このアプリ以外でも見せたいときのための Mermaid の gantt。日付はこのアプリで計算したものを書く
+// （Mermaid の営業日の数え方に任せるとずれるため）。担当はタスク名の後ろに付け、進捗は 100% を done、
+// 途中を active にする（％は書けない）。メモは書かない
+
+/** Mermaid の gantt で記号として読まれる文字を全角にする */
+const mermaidText = (s: string) => s.replace(/:/g, "：").replace(/;/g, "；").replace(/#/g, "＃").trim();
+
+const MERMAID_AXIS: Record<GanttView, string[]> = {
+  day: ["axisFormat %m/%d"],
+  week: ["axisFormat %m/%d", "tickInterval 1week"],
+  month: ["axisFormat %Y/%m", "tickInterval 1month"],
+};
+
+export function ganttToMermaid(model: GanttModel): string {
+  const plan = scheduleGantt(model);
+  const out = ["gantt"];
+  if (plan.title.trim()) out.push(`  title ${mermaidText(plan.title)}`);
+  out.push("  dateFormat YYYY-MM-DD", ...MERMAID_AXIS[plan.view].map((l) => `  ${l}`));
+  out.push(`  excludes ${["weekends", ...[...plan.holidays].sort((a, b) => a - b).map(formatDate)].join(", ")}`);
+  let n = 0;
+  for (const it of plan.items) {
+    if (it.type === "group") {
+      out.push(`  section ${mermaidText(it.name)}`);
+      continue;
+    }
+    const name = mermaidText(it.owner ? `${it.name}（${it.owner}）` : it.name);
+    const tag = it.milestone ? "milestone, " : it.progress === 100 ? "done, " : it.progress ? "active, " : "";
+    // Mermaid の終了日はその日を含まないので、1 日後を書く
+    const span = it.milestone ? `${formatDate(it.start)}, 0d` : `${formatDate(it.start)}, ${formatDate(it.end + 1)}`;
+    out.push(`  ${name} :${tag}t${++n}, ${span}`);
+  }
+  return out.join("\n") + "\n";
+}

@@ -1472,6 +1472,7 @@ const previewMenu = $("preview-menu");
 const menuItem = (action: string) => previewMenu.querySelector<HTMLButtonElement>(`[data-action="${action}"]`)!;
 const viewItem = menuItem("view");
 const annotateItem = menuItem("annotate");
+const copyMermaidItem = menuItem("copy-mermaid");
 const copyTextItem = menuItem("copy-text");
 const copyPathItem = menuItem("copy-path");
 const revealItem = menuItem("reveal");
@@ -1479,6 +1480,8 @@ const menuSep = previewMenu.querySelector<HTMLElement>(".menu-sep")!;
 let menuTarget: HTMLElement | SVGSVGElement | null = null;
 let menuImage: number | null = null;
 let menuText = "";
+/** 右クリックしたガントチャートの、ソースの開始行（0 始まり） */
+let menuGanttLine: number | null = null;
 preview.addEventListener("contextmenu", (e) => {
   e.preventDefault();
   menuTarget = viewableAt(e.target);
@@ -1487,6 +1490,9 @@ preview.addEventListener("contextmenu", (e) => {
   menuText = window.getSelection()?.toString() ?? "";
   viewItem.hidden = menuSep.hidden = !menuTarget;
   annotateItem.hidden = menuImage === null;
+  const gantt = ganttAt(e.target);
+  menuGanttLine = gantt && isOptionEnabled("gantt") ? Number(gantt.dataset.line) : null;
+  copyMermaidItem.hidden = menuGanttLine === null;
   copyTextItem.hidden = !menuText;
   copyPathItem.disabled = revealItem.disabled = !active.path;
   showMenuAt(previewMenu, e);
@@ -1496,6 +1502,7 @@ const closePreviewMenu = () => {
   menuTarget = null;
   menuImage = null;
   menuText = "";
+  menuGanttLine = null;
 };
 window.addEventListener("pointerdown", (e) => !previewMenu.contains(e.target as Node) && closePreviewMenu(), true);
 window.addEventListener("blur", closePreviewMenu);
@@ -1505,7 +1512,9 @@ previewMenu.addEventListener("click", async (e) => {
   const target = menuTarget;
   const n = menuImage;
   const text = menuText;
+  const ganttLine = menuGanttLine;
   closePreviewMenu();
+  if (action === "copy-mermaid" && ganttLine !== null) return void copyGanttAsMermaid(ganttLine).catch(showError);
   if (action === "copy-text") return void navigator.clipboard.writeText(text).catch(showError);
   if (action === "copy-path") return void copyPath();
   if (action === "reveal") return void revealFile();
@@ -1517,6 +1526,19 @@ previewMenu.addEventListener("click", async (e) => {
   editor.setCursor(pos.line, pos.ch);
   await annotator.open();
 });
+
+/** line 行目（0 始まり）から始まる ```gantt のブロックを、Mermaid の gantt にしてコピーする */
+async function copyGanttAsMermaid(line: number) {
+  const lines = editor.getText().split("\n");
+  const open = /^\s{0,3}(`{3,}|~{3,})/.exec(lines[line] ?? "");
+  if (!open) throw new Error("このガントチャートの場所を MD の中で見つけられませんでした。");
+  // 閉じる囲みは、開いたときと同じ文字で同じ数以上
+  const close = lines.findIndex((l, i) => i > line && l.trim().startsWith(open[1]) && /^\s{0,3}(`{3,}|~{3,})\s*$/.test(l));
+  const body = lines.slice(line + 1, close < 0 ? undefined : close).join("\n");
+  const { parseGantt, ganttToMermaid } = await import("./gantt");
+  await navigator.clipboard.writeText("```mermaid\n" + ganttToMermaid(parseGantt(body)) + "```\n");
+  showStatus("Mermaid の gantt をコピーしました（担当は名前の後ろ、進捗は done / active。メモは入りません）", 3000);
+}
 
 /** 書き方ヘルプを別ウィンドウで開く（開いていれば前面に出す） */
 async function openHelp() {

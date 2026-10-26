@@ -6,6 +6,7 @@ import {
   calendarOf,
   columnOf,
   formatDate,
+  ganttToMermaid,
   isWrittenRow,
   parseDate,
   parseGantt,
@@ -465,10 +466,28 @@ export function createGanttForm(): DiagramForm {
       });
       seg.append(b);
     }
+    const copy = el("button", {
+      type: "button",
+      textContent: "Mermaid でコピー",
+      className: "g-copy",
+      title: "GitHub など、ほかのビューアでも描ける Mermaid の gantt にしてコピーする（担当は名前の後ろに、進捗は done / active に。メモは入らない）",
+    });
+    copy.addEventListener("click", () => {
+      try {
+        const text = "```mermaid\n" + ganttToMermaid(model) + "```\n";
+        navigator.clipboard.writeText(text).then(
+          () => hint("Mermaid の gantt をコピーしました（担当は名前の後ろ、進捗は done / active。メモは入りません）。"),
+          (err) => hint(`コピーできませんでした: ${err}`),
+        );
+      } catch (err) {
+        hint(err instanceof Error ? err.message : String(err));
+      }
+    });
     barEl.replaceChildren(
       el("span", { textContent: "表示:" }),
       seg,
       el("span", { className: "b-hint", textContent: "横棒をドラッグで移動、右端をドラッグで期間を変えます。" }),
+      copy,
     );
   }
 
