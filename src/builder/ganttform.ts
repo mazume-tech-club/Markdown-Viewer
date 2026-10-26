@@ -7,6 +7,7 @@ import {
   columnOf,
   formatDate,
   ganttToMermaid,
+  mermaidCopyNote,
   isWrittenRow,
   parseDate,
   parseGantt,
@@ -476,13 +477,13 @@ export function createGanttForm(): DiagramForm {
       type: "button",
       textContent: "Mermaid でコピー",
       className: "g-copy",
-      title: "GitHub など、ほかのビューアでも描ける Mermaid の gantt にしてコピーする（担当は名前の後ろに、進捗は done / active に。メモは入らない）",
+      title: "GitHub など、ほかのビューアでも描ける Mermaid の gantt にしてコピーする（担当は名前の後ろに。まとめが担当なら見出しに。進捗は done / active に。メモは入らない）",
     });
     copy.addEventListener("click", () => {
       try {
         const text = "```mermaid\n" + ganttToMermaid(model) + "```\n";
         navigator.clipboard.writeText(text).then(
-          () => hint("Mermaid の gantt をコピーしました（担当は名前の後ろ、進捗は done / active。メモは入りません）。"),
+          () => hint(`Mermaid の gantt をコピーしました（${mermaidCopyNote(model.groupBy)}）。`),
           (err) => hint(`コピーできませんでした: ${err}`),
         );
       } catch (err) {

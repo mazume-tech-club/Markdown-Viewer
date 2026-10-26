@@ -1535,9 +1535,10 @@ async function copyGanttAsMermaid(line: number) {
   // 閉じる囲みは、開いたときと同じ文字で同じ数以上
   const close = lines.findIndex((l, i) => i > line && l.trim().startsWith(open[1]) && /^\s{0,3}(`{3,}|~{3,})\s*$/.test(l));
   const body = lines.slice(line + 1, close < 0 ? undefined : close).join("\n");
-  const { parseGantt, ganttToMermaid } = await import("./gantt");
-  await navigator.clipboard.writeText("```mermaid\n" + ganttToMermaid(parseGantt(body)) + "```\n");
-  showStatus("Mermaid の gantt をコピーしました（担当は名前の後ろ、進捗は done / active。メモは入りません）", 3000);
+  const { parseGantt, ganttToMermaid, mermaidCopyNote } = await import("./gantt");
+  const model = parseGantt(body);
+  await navigator.clipboard.writeText("```mermaid\n" + ganttToMermaid(model) + "```\n");
+  showStatus(`Mermaid の gantt をコピーしました（${mermaidCopyNote(model.groupBy)}）`, 3000);
 }
 
 /** 書き方ヘルプを別ウィンドウで開く（開いていれば前面に出す） */

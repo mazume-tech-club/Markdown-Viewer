@@ -447,6 +447,10 @@ const MERMAID_AXIS: Record<GanttView, string[]> = {
   month: ["axisFormat %Y/%m", "tickInterval 1month"],
 };
 
+/** Mermaid でコピーしたあとの案内（Mermaid に無いものをどうしたか） */
+export const mermaidCopyNote = (groupBy: GanttGroupBy) =>
+  `担当は${groupBy === "owner" ? "見出し（section）" : "名前の後ろ"}、進捗は done / active。メモは入りません`;
+
 export function ganttToMermaid(model: GanttModel): string {
   const plan = scheduleGantt(model);
   const byOwner = plan.groupBy === "owner";
