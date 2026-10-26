@@ -2,10 +2,10 @@
 // 図の種類ごとのフォーム（DiagramForm）を差し替えられる作り。C4（c4form.ts）と、
 // オプション機能をオンにしたときだけガントチャート（ganttform.ts）
 
-import { message } from "@tauri-apps/plugin-dialog";
+import { ask, message } from "@tauri-apps/plugin-dialog";
 import { renderDiagrams } from "../diagrams";
 import { diagramKind } from "../render";
-import { changedRange } from "../textdiff";
+import { changedRange, mergeChange } from "../textdiff";
 import type { CodeBlock, Editor } from "../editor";
 import { createC4Form } from "./c4form";
 import { createGanttForm } from "./ganttform";
@@ -105,6 +105,8 @@ export function setupBuilder(opts: {
   let form = c4Form;
   /** 読み込んだコードブロック（置き換え先）。新しく作るときは null */
   let target: CodeBlock | null = null;
+  /** 読み込んだときのコードブロックの文字（囲みの行も含む）。置き換えるとき、ほかの人の変更と分けるのに使う */
+  let base = "";
   let timer = 0;
   let gen = 0;
 
@@ -132,17 +134,37 @@ export function setupBuilder(opts: {
     refresh(0);
   });
   q<HTMLButtonElement>(".b-close").addEventListener("click", () => close());
-  applyBtn.addEventListener("click", () => {
+  applyBtn.addEventListener("click", async () => {
     if (!opts.canEdit()) return;
     const text = `\`\`\`${lang()}\n${form.code()}\`\`\``;
     if (target) {
+      const blockLang = target.lang;
       // 開いている間に共同編集でほかの人が書いて位置がずれていることがあるので、カーソル位置のブロックを探し直す
-      // （カーソルはほかの人の編集に合わせて動く）。違う部分だけを入れ直し、ほかの人が同じブロックの別の行に書いた分を残す
-      const now = opts.editor.blockAtCursor();
-      const block = now && now.lang === target.lang ? now : target;
-      const old = opts.editor.view.state.doc.sliceString(block.from, block.to);
-      const r = changedRange(old, text);
-      if (r) opts.editor.replaceRange(block.from + r.start, block.from + r.oldEnd, text.slice(r.start, r.newEnd));
+      // （カーソルはほかの人の編集に合わせて動く）。見つからなければ、関係のない文を上書きしないよう置き換えない
+      const findBlock = () => {
+        const now = opts.editor.blockAtCursor();
+        if (now && now.lang === blockLang) return { from: now.from, text: opts.editor.view.state.doc.sliceString(now.from, now.to) };
+        void message("置き換える図が見つかりません（共同編集でほかの人が消したか、書き換えた可能性があります）。\n「生成されるコード」をコピーして貼り付けてください。", {
+          title: "図のビルダー",
+          kind: "warning",
+        });
+        return null;
+      };
+      let block = findBlock();
+      if (!block) return;
+      // 開いたときの内容・今の内容・ビルダーの内容を比べ、自分の変更だけを入れる（ほかの人が別の所に書いた分は残す）
+      let change = mergeChange(base, block.text, text);
+      if (change === "conflict") {
+        const overwrite = await ask("開いている間に、ほかの人がこの図の同じ所を書き換えました。\nほかの人の変更を上書きして置き換えますか？", {
+          title: "図のビルダー",
+          kind: "warning",
+        });
+        // 確かめている間にも書き換わることがあるので、もう一度探す
+        if (!overwrite || root.hidden || !(block = findBlock())) return;
+        const r = changedRange(block.text, text);
+        change = r && { from: r.start, to: r.oldEnd, insert: text.slice(r.start, r.newEnd) };
+      }
+      if (change) opts.editor.replaceRange(block.from + change.from, block.from + change.to, change.insert);
     } else {
       // カーソルが別のコードブロックの中なら、ブロックを壊さないようその後ろに入れる
       const inside = opts.editor.blockAtCursor();
@@ -161,6 +183,7 @@ export function setupBuilder(opts: {
     const block = opts.editor.blockAtCursor();
     const found = block ? list.find((f) => f.accepts(block.lang, block.body)) : undefined;
     target = found && (!wanted || found === wanted) ? block : null;
+    base = target ? opts.editor.view.state.doc.sliceString(target.from, target.to) : "";
     form = (target ? found : wanted) ?? list[0];
     try {
       form.load(target ? target.body : null);
