@@ -5,6 +5,7 @@
 //   タイトル: 新システム導入
 //   休日: 2026-11-03, 2026-12-29〜2027-01-03
 //   表示: 週
+//   まとめ: 担当                ← 図を担当ごとに並べる（既定はグループごと）
 //
 //   | タスク   | 開始       | 終了       | 日数 | 担当 | 進捗 |
 //   |----------|------------|------------|------|------|------|
@@ -18,6 +19,9 @@
 // （図のビルダーで、値の誤りがあっても読み込んで直せるように）
 
 export type GanttView = "day" | "week" | "month";
+
+/** まとめ方: 図でタスクをグループごとに並べるか、担当ごとに並べるか */
+export type GanttGroupBy = "group" | "owner";
 
 export interface GanttRow {
   /** グループ（続くタスクをまとめる見出し）の行か */
@@ -39,6 +43,7 @@ export interface GanttModel {
   /** 休日の日付と期間（「2026-12-29〜2027-01-03」）。書かれたままの文字 */
   holidays: string[];
   view: GanttView;
+  groupBy: GanttGroupBy;
   rows: GanttRow[];
   /** 休日の設定行の行番号（誤りの知らせ用） */
   holidaysLine?: number;
@@ -66,6 +71,7 @@ export type GanttItem =
 export interface GanttPlan {
   title: string;
   view: GanttView;
+  groupBy: GanttGroupBy;
   items: GanttItem[];
   /** 土日以外の休日（1970-01-01 からの日数） */
   holidays: Set<number>;
@@ -122,7 +128,7 @@ export function columnOf(header: string): GanttColumn | undefined {
   return (Object.keys(HEADERS) as Column[]).find((col) => (HEADERS[col] as readonly string[]).includes(h));
 }
 
-const SETTINGS: Record<string, "title" | "holidays" | "view"> = {
+const SETTINGS: Record<string, "title" | "holidays" | "view" | "groupBy"> = {
   タイトル: "title",
   title: "title",
   休日: "holidays",
@@ -130,10 +136,13 @@ const SETTINGS: Record<string, "title" | "holidays" | "view"> = {
   holiday: "holidays",
   表示: "view",
   view: "view",
+  まとめ: "groupBy",
+  groupby: "groupBy",
 };
 
 const VIEWS: Record<string, GanttView> = { 日: "day", day: "day", 週: "week", week: "week", 月: "month", month: "month" };
 const VIEW_NAMES: Record<GanttView, string> = { day: "日", week: "週", month: "月" };
+const GROUP_BYS: Record<string, GanttGroupBy> = { グループ: "group", group: "group", 担当: "owner", owner: "owner" };
 
 /** 表の行をセルに分ける（前後の | を外す。\| はセルの中の | として扱う） */
 function cells(row: string): string[] {
@@ -144,7 +153,7 @@ function cells(row: string): string[] {
 const SEPARATOR = /^\|?\s*:?-+:?\s*(\|\s*:?-+:?\s*)*\|?$/;
 
 export function parseGantt(src: string): GanttModel {
-  const model: GanttModel = { title: "", holidays: [], view: "day", rows: [] };
+  const model: GanttModel = { title: "", holidays: [], view: "day", groupBy: "group", rows: [] };
   let cols: Partial<Record<Column, number>> | null = null;
   let expectSeparator = false;
 
@@ -184,12 +193,16 @@ export function parseGantt(src: string): GanttModel {
     if (!setting) throw new Error(`${n} 行目: 未対応の書き方です（「キー: 値」の設定か、表の行を書いてください）`);
     const key = SETTINGS[setting[1].toLowerCase()];
     const value = setting[2].trim();
-    if (!key) throw new Error(`${n} 行目: 「${setting[1]}」は使えない設定です（タイトル・休日・表示が使えます）`);
+    if (!key) throw new Error(`${n} 行目: 「${setting[1]}」は使えない設定です（タイトル・休日・表示・まとめが使えます）`);
     if (key === "title") model.title = value;
     else if (key === "view") {
       const v = VIEWS[value.toLowerCase()];
       if (!v) throw new Error(`${n} 行目: 表示は 日・週・月 のどれかにしてください`);
       model.view = v;
+    } else if (key === "groupBy") {
+      const g = GROUP_BYS[value.toLowerCase()];
+      if (!g) throw new Error(`${n} 行目: まとめは グループ・担当 のどちらかにしてください`);
+      model.groupBy = g;
     } else {
       // 期間の 〜 の前後の空白を詰めてから、カンマか空白で分ける
       model.holidays.push(...value.replace(/\s*([〜~～])\s*/g, "$1").split(/[\s,、，]+/).filter(Boolean));
@@ -318,6 +331,7 @@ export function scheduleGantt(model: GanttModel): GanttPlan {
   return {
     title: model.title,
     view: model.view,
+    groupBy: model.groupBy,
     items,
     holidays,
     from: Math.min(...tasks.map((t) => t.start)),
@@ -350,6 +364,7 @@ export function writeGantt(model: GanttModel): string {
   const holidays = model.holidays.map((h) => h.trim()).filter(Boolean);
   if (holidays.length) out.push(`休日: ${holidays.map(normHoliday).join(", ")}`);
   if (model.view !== "day") out.push(`表示: ${VIEW_NAMES[model.view]}`);
+  if (model.groupBy === "owner") out.push("まとめ: 担当");
   if (out.length) out.push("");
 
   const withNote = model.rows.some((r) => !r.group && r.note.trim());
@@ -375,6 +390,49 @@ export function writeGantt(model: GanttModel): string {
   return out.join("\n") + "\n";
 }
 
+// ---------- 図の行の並び（まとめ方） ----------
+
+export type GanttTask = Extract<GanttItem, { type: "task" }>;
+
+/** 図に描く 1 行。見出しは level 0（グループか担当）と 1（担当ごとのときのグループ）。tasks は見出しの下のタスク */
+export type GanttLine =
+  | { type: "head"; name: string; level: 0 | 1; tasks: GanttTask[] }
+  | { type: "task"; task: GanttTask; /** 字下げの段 */ depth: 0 | 1 | 2 };
+
+/** 担当が空のタスクをまとめる見出し */
+export const NO_OWNER = "（担当なし）";
+
+/**
+ * 計画を図の行の並びにする。グループごとなら表の順のまま。担当ごとなら、担当が出てきた順に人の見出しを置き、
+ * その下にグループを小見出しとして（グループが出てきた順に）並べる。担当が空のタスクは最後にまとめる
+ */
+export function ganttRows(plan: GanttPlan): GanttLine[] {
+  const tasks = plan.items.filter((i): i is GanttTask => i.type === "task");
+  if (plan.groupBy === "group") {
+    return plan.items.map((it) =>
+      it.type === "group"
+        ? { type: "head", name: it.name, level: 0, tasks: tasks.filter((t) => t.group === it.index) }
+        : { type: "task", task: it, depth: it.group >= 0 ? 1 : 0 },
+    );
+  }
+  const groupName = new Map(plan.items.flatMap((i) => (i.type === "group" ? [[i.index, i.name] as const] : [])));
+  const owners = [...new Set(tasks.map((t) => t.owner))].sort((a, b) => Number(!a) - Number(!b));
+  return owners.flatMap((owner): GanttLine[] => {
+    const mine = tasks.filter((t) => t.owner === owner);
+    const groups = [...new Set(mine.map((t) => t.group))];
+    // グループの外のタスクを先に、人の見出しのすぐ下に置く
+    groups.sort((a, b) => Number(a >= 0) - Number(b >= 0));
+    return [
+      { type: "head", name: owner || NO_OWNER, level: 0, tasks: mine },
+      ...groups.flatMap((g): GanttLine[] => {
+        const inGroup = mine.filter((t) => t.group === g);
+        if (g < 0) return inGroup.map((task) => ({ type: "task", task, depth: 1 }));
+        return [{ type: "head", name: groupName.get(g) ?? "", level: 1, tasks: inGroup }, ...inGroup.map((task): GanttLine => ({ type: "task", task, depth: 2 }))];
+      }),
+    ];
+  });
+}
+
 // ---------- Mermaid への変換 ----------
 // GitHub など、このアプリ以外でも見せたいときのための Mermaid の gantt。日付はこのアプリで計算したものを書く
 // （Mermaid の営業日の数え方に任せるとずれるため）。担当はタスク名の後ろに付け、進捗は 100% を done、
@@ -391,17 +449,21 @@ const MERMAID_AXIS: Record<GanttView, string[]> = {
 
 export function ganttToMermaid(model: GanttModel): string {
   const plan = scheduleGantt(model);
+  const byOwner = plan.groupBy === "owner";
   const out = ["gantt"];
   if (plan.title.trim()) out.push(`  title ${mermaidText(plan.title)}`);
   out.push("  dateFormat YYYY-MM-DD", ...MERMAID_AXIS[plan.view].map((l) => `  ${l}`));
   out.push(`  excludes ${["weekends", ...[...plan.holidays].sort((a, b) => a - b).map(formatDate)].join(", ")}`);
   let n = 0;
-  for (const it of plan.items) {
-    if (it.type === "group") {
-      out.push(`  section ${mermaidText(it.name)}`);
+  for (const r of ganttRows(plan)) {
+    // Mermaid の見出しは 1 段なので、担当ごとのときの小見出し（グループ）は書かない
+    if (r.type === "head") {
+      if (r.level === 0) out.push(`  section ${mermaidText(r.name)}`);
       continue;
     }
-    const name = mermaidText(it.owner ? `${it.name}（${it.owner}）` : it.name);
+    const it = r.task;
+    // 担当ごとのときは見出しが担当なので、名前に担当を付けない
+    const name = mermaidText(it.owner && !byOwner ? `${it.name}（${it.owner}）` : it.name);
     const tag = it.milestone ? "milestone, " : it.progress === 100 ? "done, " : it.progress ? "active, " : "";
     // Mermaid の終了日はその日を含まないので、1 日後を書く
     const span = it.milestone ? `${formatDate(it.start)}, 0d` : `${formatDate(it.start)}, ${formatDate(it.end + 1)}`;

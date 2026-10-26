@@ -13,6 +13,7 @@ import {
   scheduleGantt,
   writeGantt,
   type GanttColumn,
+  type GanttGroupBy,
   type GanttItem,
   type GanttModel,
   type GanttRow,
@@ -36,6 +37,11 @@ const VIEWS: [GanttView, string][] = [
   ["day", "日"],
   ["week", "週"],
   ["month", "月"],
+];
+
+const GROUP_BYS: [GanttGroupBy, string, string][] = [
+  ["group", "グループ", "図をグループごとに並べる（表の順）"],
+  ["owner", "担当", "図を担当ごとに並べ、その下にグループを小見出しで出す（表は変えない）"],
 ];
 
 const blankRow = (): GanttRow => ({ group: false, name: "", start: "", end: "", days: "", owner: "", progress: "", note: "" });
@@ -72,7 +78,7 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Partial<HTMLEl
 }
 
 export function createGanttForm(): DiagramForm {
-  let model: GanttModel = { title: "", holidays: [], view: "day", rows: [] };
+  let model: GanttModel = { title: "", holidays: [], view: "day", groupBy: "group", rows: [] };
   /** 選んでいる行（rows の位置）。無ければ -1 */
   let selected = -1;
   let changed: () => void = () => {};
@@ -483,9 +489,23 @@ export function createGanttForm(): DiagramForm {
         hint(err instanceof Error ? err.message : String(err));
       }
     });
+    const groupSeg = el("div", { className: "segmented" });
+    for (const [groupBy, label, title] of GROUP_BYS) {
+      const b = el("button", { type: "button", textContent: label, title });
+      b.classList.toggle("active", model.groupBy === groupBy);
+      b.addEventListener("click", () => {
+        model.groupBy = groupBy;
+        renderBar();
+        commit();
+        changed();
+      });
+      groupSeg.append(b);
+    }
     barEl.replaceChildren(
       el("span", { textContent: "表示:" }),
       seg,
+      el("span", { textContent: "まとめ:" }),
+      groupSeg,
       el("span", { className: "b-hint", textContent: "横棒をドラッグで移動、右端をドラッグで期間を変えます。" }),
       copy,
     );
@@ -585,6 +605,7 @@ export function createGanttForm(): DiagramForm {
           title: "",
           holidays: [],
           view: "day",
+          groupBy: "group",
           rows: [
             { ...blankRow(), group: true, name: "準備" },
             { ...blankRow(), name: "タスク 1", start: today, days: "3" },

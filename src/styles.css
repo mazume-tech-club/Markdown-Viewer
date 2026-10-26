@@ -745,11 +745,16 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 6px 8px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   font-size: 12px;
 }
+/* 道具が多いときは帯ごと折り返し、ボタンや見出しの文字は折らない */
+.b-preview-bar > span:not(.b-hint),
+.b-preview-bar .segmented button { white-space: nowrap; }
+.b-preview-bar .segmented { flex: none; }
 .b-preview-bar .b-hint { color: var(--muted); }
 .b-preview-bar .b-hint.b-flash { color: var(--accent); font-weight: bold; }
 .builder-preview svg { touch-action: none; user-select: none; }

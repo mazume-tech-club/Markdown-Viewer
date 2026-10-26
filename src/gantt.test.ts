@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDate, ganttToMermaid, parseDate, parseGantt, scheduleGantt, writeGantt, type GanttModel } from "./gantt";
+import { formatDate, ganttRows, ganttToMermaid, parseDate, parseGantt, scheduleGantt, writeGantt, type GanttModel } from "./gantt";
 import helpSource from "./help/help.md?raw";
 import skillSource from "./help/skill.md?raw";
 
@@ -121,6 +121,7 @@ describe("writeGantt", () => {
       title: "計画",
       holidays: ["2026/11/3"],
       view: "day",
+      groupBy: "group",
       rows: [
         { group: true, name: "設計", start: "", end: "", days: "", owner: "", progress: "", note: "" },
         { group: false, name: "要件定義", start: "2026/11/2", end: "", days: "5", owner: "土屋", progress: "50", note: "" },
@@ -182,6 +183,59 @@ describe("ganttToMermaid", () => {
     expect(out).toContain("excludes weekends, 2026-12-30, 2026-12-31, 2027-01-01");
     expect(out).toContain("  a：b；c＃d :t1, 2026-12-28, 2026-12-29");
     expect(out).not.toContain("title");
+  });
+});
+
+describe("まとめ方（担当ごと）", () => {
+  const byOwner = "まとめ: 担当\n" + SAMPLE;
+  /** 並べた行を「見出しは # / ## 、タスクは字下げ」の文字にする */
+  const outline = (src: string) =>
+    ganttRows(scheduleGantt(parseGantt(src))).map((r) =>
+      r.type === "head" ? `${"#".repeat(r.level + 1)} ${r.name}（${r.tasks.length}）` : `${"  ".repeat(r.depth)}${r.task.name}`,
+    );
+
+  it("reads and writes the setting", () => {
+    expect(parseGantt(byOwner).groupBy).toBe("owner");
+    expect(parseGantt("groupby: owner\n" + SAMPLE).groupBy).toBe("owner");
+    expect(parseGantt(SAMPLE).groupBy).toBe("group");
+    expect(writeGantt(parseGantt(byOwner))).toContain("表示: 週\nまとめ: 担当\n");
+    expect(writeGantt(parseGantt(SAMPLE))).not.toContain("まとめ");
+    expect(() => parseGantt("まとめ: 部署\n" + SAMPLE)).toThrow("1 行目: まとめは グループ・担当 のどちらかにしてください");
+  });
+
+  it("puts groups under each owner, in order of appearance, with no owner last", () => {
+    expect(outline(byOwner)).toEqual([
+      "# 土屋（2）",
+      "## 設計（1）",
+      "    要件定義",
+      "## 開発（1）",
+      "    実装",
+      "# 佐藤（1）",
+      "## 設計（1）",
+      "    基本設計",
+      "# （担当なし）（1）",
+      "## 設計（1）",
+      "    設計レビュー",
+    ]);
+  });
+
+  it("keeps the table order when grouping by group", () => {
+    expect(outline(SAMPLE)).toEqual(["# 設計（3）", "  要件定義", "  基本設計", "  設計レビュー", "# 開発（1）", "  実装"]);
+  });
+
+  it("lists tasks outside any group directly under the owner", () => {
+    expect(outline("まとめ: 担当\n| タスク | 開始 | 日数 | 担当 |\n|---|---|---|---|\n| A | 2026-11-02 | 1 | 西山 |\n| # 案件 | | | |\n| B | | 1 | 西山 |")).toEqual([
+      "# 西山（2）",
+      "  A",
+      "## 案件（1）",
+      "    B",
+    ]);
+  });
+
+  it("makes Mermaid sections per owner without repeating the owner in names", () => {
+    const out = ganttToMermaid(parseGantt(byOwner));
+    expect(out).toContain("  section 土屋\n  要件定義 :done, t1, 2026-11-02, 2026-11-10\n  実装 :t2, 2026-11-25, 2026-12-09\n");
+    expect(out).toContain("  section （担当なし）\n  設計レビュー :milestone, t4, 2026-11-24, 0d\n");
   });
 });
 
