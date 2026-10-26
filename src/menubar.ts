@@ -42,6 +42,7 @@ export interface MenuActions {
   setDocStyle(style: DocStyle): void;
   reload(): void;
   diagram(): void;
+  gantt(): void;
   annotate(): void;
   settings(): void;
   collab(): void;
@@ -83,7 +84,8 @@ const TERM_POSITIONS: [TermPosition, string][] = [
   ["right", "右"],
 ];
 
-/** top の中の「ツール」の位置 */
+/** top の中の「挿入」「ツール」の位置 */
+const INSERT = 3;
 const TOOLS = 4;
 
 const label = (text: string, keys?: string) => (keys ? `${text}\t${keys}` : text);
@@ -241,6 +243,7 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     ]);
   };
   let collab: Promise<MenuItem | null> = Promise.resolve(null);
+  let gantt: Promise<MenuItem | null> = Promise.resolve(null);
   // 連続して呼ばれても順番に映す（古い状態で上書きしないよう、最後に最新の state を映す）
   let queue = Promise.resolve();
   const update = (patch: Partial<MenuState>) => {
@@ -258,6 +261,23 @@ export function setupMenuBar(actions: MenuActions, initial: MenuState) {
     setTerminal: (terminalOpen: boolean, terminalPosition: TermPosition) => update({ terminalOpen, terminalPosition }),
     setCanCopyPath: (canCopyPath: boolean) => update({ canCopyPath }),
     setModal: (modal: boolean) => modal !== state.modal && update({ modal }),
+    /** 「挿入」の末尾の「ガントチャート」を出す・消す（オプション機能がオンのときだけ出す） */
+    setGantt: (on: boolean) => {
+      gantt = gantt.then(async (it) => {
+        const m = await ready;
+        if (on && !it) {
+          const created = await MenuItem.new({ text: "ガントチャート…", action: () => actions.gantt() });
+          await m.top[INSERT].append(created);
+          return created;
+        }
+        if (!on && it) {
+          await m.top[INSERT].remove(it);
+          return null;
+        }
+        return it;
+      });
+      gantt.catch((err) => console.error("menu", err));
+    },
     /** 「ツール」の先頭に「共同編集」を出す（共同編集プラグインがあるときだけ）。label は人数入りの表示名 */
     setCollab: (text: string) => {
       collab = collab.then(async (it) => {

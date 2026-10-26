@@ -801,6 +801,26 @@ button.primary:hover { filter: brightness(1.1); background: var(--accent); }
 .b-dir { flex-wrap: nowrap; }
 .b-add { display: flex; gap: 6px; margin-top: 6px; }
 .b-note { color: var(--muted); font-size: 12px; margin: 6px 0; }
+/* ガントチャートの表（Excel のように詰めて並べる）。.b-table input の幅 100% より強くするため input. を付ける */
+.g-table td { padding: 1px 2px; }
+.g-table input.g-name { width: 100%; min-width: 140px; }
+.g-table input.g-date { width: 106px; min-width: 106px; font-variant-numeric: tabular-nums; }
+.g-table input.g-num { width: 52px; min-width: 52px; }
+.g-table input.g-owner { width: 80px; min-width: 80px; }
+.g-table input.g-note { width: 100%; min-width: 80px; }
+.g-table input::placeholder { color: var(--muted); opacity: 0.6; }
+.g-table tr.g-group input.g-name { font-weight: bold; }
+.g-table input:disabled { visibility: hidden; }
+.g-holidays { width: 320px; }
+.g-error { color: var(--error); }
+/* プレビューの横棒: 中ほどをつかんで移動、右端で期間を変える */
+/* ドラッグしやすいよう縮めずに出し、はみ出す分はスクロールする（.diagram.done svg の max-width より強くする） */
+.builder-preview .diagram.done svg.gantt { max-width: none; cursor: default; }
+.builder-preview svg.gantt .gantt-handle-move { cursor: grab; }
+.builder-preview svg.gantt .gantt-handle-end { cursor: ew-resize; }
+.builder-preview svg.gantt g.b-picked .gantt-handle-move { stroke: var(--accent); stroke-width: 2.5; }
+.builder-preview svg.gantt g.b-picked + text,
+.builder-preview svg.gantt g.b-picked text { font-weight: bold; }
 .b-invalid { outline: 2px solid var(--error); }
 .builder input[type="text"],
 .builder input[type="number"],

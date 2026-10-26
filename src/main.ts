@@ -119,6 +119,7 @@ const menuBar = setupMenuBar(
     },
     reload: () => void reloadTab(active),
     diagram: () => void openDiagramTool(),
+    gantt: () => withEditor(() => void builder.open("gantt")),
     annotate: () => void annotator.open(),
     settings: () => openSettings(),
     collab: () => collabUi.open(),
@@ -140,6 +141,7 @@ const menuBar = setupMenuBar(
   },
 );
 void menuBar.ready.catch(showError);
+menuBar.setGantt(isOptionEnabled("gantt"));
 
 // 目次（プレビューモードのとき、プレビューの左に見出しを並べる。toc.ts）
 const toc = setupToc({
@@ -1311,14 +1313,14 @@ $("banner-ignore").addEventListener("click", () => {
  * 図のビルダー・注釈エディタは、初めて開くときに読み込む（起動時に読み込まないで済むように）。
  * 読み込む前は閉じている扱い
  */
-function lazyTool(load: () => Promise<{ open(): unknown; close(): void; isOpen(): boolean }>) {
+function lazyTool<A extends unknown[]>(load: () => Promise<{ open(...args: A): unknown; close(): void; isOpen(): boolean }>) {
   let tool: Awaited<ReturnType<typeof load>> | null = null;
   let loading: ReturnType<typeof load> | null = null;
   return {
-    async open() {
+    async open(...args: A) {
       try {
         loading ??= load().then((t) => (tool = t));
-        await (await loading).open();
+        await (await loading).open(...args);
       } catch (err) {
         loading = null;
         await showError(err);
@@ -1329,17 +1331,21 @@ function lazyTool(load: () => Promise<{ open(): unknown; close(): void; isOpen()
   };
 }
 
-// 図のビルダー（C4 図をフォームで作る・カーソル位置の図を直す）
+/** 図のビルダー・注釈エディタで書き換えてよいか（更新のダウンロード中と、読み取り専用の共同編集の参加者は不可） */
+const canEditByTool = () => !state.updating && !editor.getState().readOnly;
+
+// 図のビルダー（C4 図・ガントチャートをフォームで作る・カーソル位置の図を直す）
 const builder = lazyTool(async () => (await import("./builder/builder")).setupBuilder({
   editor,
   isDark: () => darkQuery.matches,
-  canEdit: () => !state.updating,
+  canEdit: canEditByTool,
+  ganttEnabled: () => isOptionEnabled("gantt"),
   onApplied: () => state.mode === "preview" && setMode("split"),
 }));
 // 画像の注釈（矢印・テキスト・枠・番号を画像に重ねる）
 const annotator = lazyTool(async () => (await import("./annotator/annotator")).setupAnnotator({
   editor,
-  canEdit: () => !state.updating,
+  canEdit: canEditByTool,
   mdPath: () => active.path,
   readBinary: async (path) => new Uint8Array(await invoke<ArrayBuffer>("read_binary", { path })),
   exists: (path) => invoke<boolean>("path_exists", { path }),
@@ -1387,6 +1393,8 @@ preview.addEventListener(
   { capture: true },
 );
 
+/** ガントチャートのダブルクリックを待つ間の、拡大ビューアを開くタイマー */
+let viewerTimer = 0;
 preview.addEventListener("click", (e) => {
   // リンクの付いた画像・図の中のリンクは、リンクを優先する
   if ((e.target as Element).closest("a")) return;
@@ -1394,7 +1402,27 @@ preview.addEventListener("click", (e) => {
   if (!window.getSelection()?.isCollapsed) return;
   const el = viewableAt(e.target);
   if (!el) return;
-  openViewer(el);
+  clearTimeout(viewerTimer);
+  // ガントチャートはダブルクリックで図のビルダーを開くので、2 回目のクリックが来ないのを確かめてから拡大ビューアを開く
+  if (ganttAt(e.target) && e.detail === 1) viewerTimer = window.setTimeout(() => openViewer(el), 280);
+  else if (!ganttAt(e.target)) openViewer(el);
+});
+
+/** プレビューのガントチャートの図（ダブルクリックで編集できるもの） */
+const ganttAt = (target: EventTarget | null) =>
+  (target as Element | null)?.closest?.<HTMLElement>('.diagram.done[data-kind="gantt"][data-line]') ?? null;
+
+// ガントチャートをダブルクリック → カーソルをそのブロックに置いて、図のビルダーで開く
+preview.addEventListener("dblclick", (e) => {
+  const el = ganttAt(e.target);
+  if (!el || !isOptionEnabled("gantt") || !canEditByTool()) return;
+  e.preventDefault();
+  clearTimeout(viewerTimer);
+  window.getSelection()?.removeAllRanges();
+  withEditor(() => {
+    editor.setCursor(Number(el.dataset.line) + 1, 0);
+    void builder.open("gantt");
+  });
 });
 
 // 分割表示でプレビューをクリック → エディタのカーソルをクリックした文字の位置へ。プレビューは動かさず、
@@ -1537,6 +1565,7 @@ const optionInputs = OPTION_FEATURES.map((f) => {
   input.dataset.option = f.id;
   input.addEventListener("change", () => {
     setOptionEnabled(f.id, input.checked);
+    if (f.id === "gantt") menuBar.setGantt(input.checked);
     void render();
   });
   row.append(input, ` ${f.label}`);

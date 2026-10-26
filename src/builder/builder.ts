@@ -1,11 +1,14 @@
 // 図のビルダー: フォームで図を作り、ライブプレビューを見ながら直して、エディタに挿入する画面。
-// 図の種類ごとのフォーム（DiagramForm）を差し替えられる作り。今は C4 だけ（c4form.ts）
+// 図の種類ごとのフォーム（DiagramForm）を差し替えられる作り。C4（c4form.ts）と、
+// オプション機能をオンにしたときだけガントチャート（ganttform.ts）
 
 import { message } from "@tauri-apps/plugin-dialog";
 import { renderDiagrams } from "../diagrams";
-import { DIAGRAM_KINDS } from "../render";
+import { diagramKind } from "../render";
+import { changedRange } from "../textdiff";
 import type { CodeBlock, Editor } from "../editor";
 import { createC4Form } from "./c4form";
+import { createGanttForm } from "./ganttform";
 
 /** 図の種類ごとの入力フォーム */
 export interface DiagramForm {
@@ -34,7 +37,11 @@ const FORMAT_KEY = "builder.format";
 const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 export interface Builder {
-  open(): void;
+  /**
+   * カーソル位置の図を開く（読めるフォームが無ければ新しい図）。form を指定したら、
+   * カーソル位置がその種類の図でなければ、その種類の新しい図を開く
+   */
+  open(form?: "c4" | "gantt"): void;
   close(): void;
   isOpen(): boolean;
 }
@@ -44,6 +51,8 @@ export function setupBuilder(opts: {
   isDark: () => boolean;
   /** 編集できる状態か（更新のダウンロード中は false） */
   canEdit: () => boolean;
+  /** ガントチャートのフォームを使うか（オプション機能がオンか） */
+  ganttEnabled: () => boolean;
   /** エディタに挿入・置き換えした後（エディタを見えるようにするなど） */
   onApplied?: () => void;
 }): Builder {
@@ -85,8 +94,15 @@ export function setupBuilder(opts: {
   const barEl = q<HTMLElement>(".b-preview-bar");
   const codeEl = q<HTMLElement>(".b-code pre");
 
-  const forms = [createC4Form()];
-  let form = forms[0];
+  const c4Form = createC4Form();
+  let ganttForm: DiagramForm | null = null;
+  /** 今使えるフォーム（先頭が既定） */
+  const forms = () => {
+    if (!opts.ganttEnabled()) return [c4Form];
+    ganttForm ??= createGanttForm();
+    return [c4Form, ganttForm];
+  };
+  let form = c4Form;
   /** 読み込んだコードブロック（置き換え先）。新しく作るときは null */
   let target: CodeBlock | null = null;
   let timer = 0;
@@ -102,7 +118,7 @@ export function setupBuilder(opts: {
     timer = window.setTimeout(async () => {
       const code = form.code();
       codeEl.textContent = `\`\`\`${lang()}\n${code}\`\`\``;
-      const kind = DIAGRAM_KINDS[lang()];
+      const kind = diagramKind(lang());
       const my = ++gen;
       previewEl.innerHTML = `<div class="diagram" data-kind="${kind}"><pre class="diagram-src">${esc(code)}</pre></div>`;
       await renderDiagrams(previewEl, opts.isDark(), () => my === gen && !root.hidden);
@@ -119,18 +135,33 @@ export function setupBuilder(opts: {
   applyBtn.addEventListener("click", () => {
     if (!opts.canEdit()) return;
     const text = `\`\`\`${lang()}\n${form.code()}\`\`\``;
-    if (target) opts.editor.replaceRange(target.from, target.to, text);
-    else opts.editor.insert(text);
+    if (target) {
+      // 開いている間に共同編集でほかの人が書いて位置がずれていることがあるので、カーソル位置のブロックを探し直す
+      // （カーソルはほかの人の編集に合わせて動く）。違う部分だけを入れ直し、ほかの人が同じブロックの別の行に書いた分を残す
+      const now = opts.editor.blockAtCursor();
+      const block = now && now.lang === target.lang ? now : target;
+      const old = opts.editor.view.state.doc.sliceString(block.from, block.to);
+      const r = changedRange(old, text);
+      if (r) opts.editor.replaceRange(block.from + r.start, block.from + r.oldEnd, text.slice(r.start, r.newEnd));
+    } else {
+      // カーソルが別のコードブロックの中なら、ブロックを壊さないようその後ろに入れる
+      const inside = opts.editor.blockAtCursor();
+      if (inside) opts.editor.view.dispatch({ selection: { anchor: inside.to } });
+      opts.editor.insert(text);
+    }
     close();
     opts.onApplied?.();
   });
 
-  function open() {
+  function open(kind?: "c4" | "gantt") {
     if (!opts.canEdit()) return;
+    const list = forms();
+    const wanted = kind === "gantt" ? ganttForm : kind === "c4" ? c4Form : null;
+    if (kind === "gantt" && !list.includes(ganttForm!)) return;
     const block = opts.editor.blockAtCursor();
-    const found = block ? forms.find((f) => f.accepts(block.lang, block.body)) : undefined;
-    target = found ? block : null;
-    form = found ?? forms[0];
+    const found = block ? list.find((f) => f.accepts(block.lang, block.body)) : undefined;
+    target = found && (!wanted || found === wanted) ? block : null;
+    form = (target ? found : wanted) ?? list[0];
     try {
       form.load(target ? target.body : null);
     } catch (err) {
